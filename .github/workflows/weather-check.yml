@@ -1,0 +1,45 @@
+name: Weather Check
+
+on:
+  schedule:
+    - cron: "45 1 * * *"
+    - cron: "45 13 * * *"
+  workflow_dispatch:
+    inputs:
+      nbm_cycle:
+        description: "NBM cycle to pull (01, 07, 13, 19)"
+        required: false
+        default: "01"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Determine NBM cycle
+        id: cycle
+        run: |
+          if [ "${{ github.event.schedule }}" = "45 13 * * *" ]; then
+            echo "value=13" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.nbm_cycle }}" ]; then
+            echo "value=${{ github.event.inputs.nbm_cycle }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=01" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run weather check
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NBM_CYCLE: ${{ steps.cycle.outputs.value }}
+        run: python weather_check.py
