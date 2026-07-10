@@ -72,4 +72,4 @@ Keep your token secure and store it safely, it can be used by anyone to control 
 
 For a description of the Bot API, see this page: https://core.telegram.org/bots/api
 
-https://api.telegram.org//getUpdates
+https://api.telegram.org/8746163302:AAGYtOdPBiPi50swdaKURbxI25GivppwENU/getUpdates
