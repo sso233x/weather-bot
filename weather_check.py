@@ -81,21 +81,33 @@ def fetch_nbm_bulletins(cycle):
     return resp.text
 
 
+HEADER_RE = re.compile(
+    r"^\s*(\S+)\s+NBM\s+V[\d.]+\s+NBS\s+GUIDANCE", re.MULTILINE
+)
+
+
 def split_by_station(raw_text, stations):
     """
-    NBM bulk text responses concatenate one block per station, each
-    starting with a header line like:
-        KLAX NBM V4.1 NBS GUIDANCE ...
-    This splits the raw text into {station: block_text}.
+    NBM bulk text files concatenate one block per station. Each block
+    header looks like (note the leading whitespace before the ID):
+        086092  NBM V5.0 NBS GUIDANCE    7/10/2026  0100 UTC
+        KLAX    NBM V5.0 NBS GUIDANCE    7/10/2026  0100 UTC
+    Non-ICAO stations (buoys, some international sites) use a numeric
+    WMO id instead of a call sign — CONUS airport stations use ICAO.
+
+    This does a single pass to find every header in the file, then
+    slices out just the blocks whose identifier matches our station
+    list, rather than scanning the whole ~30MB file once per station.
     """
+    stations_set = set(stations)
+    matches = list(HEADER_RE.finditer(raw_text))
     blocks = {}
-    pattern = re.compile(
-        r"^(" + "|".join(stations) + r")\s+NBM.*?(?=^(?:" + "|".join(stations) + r")\s+NBM|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    for match in pattern.finditer(raw_text):
-        station = match.group(1)
-        blocks[station] = match.group(0)
+    for i, m in enumerate(matches):
+        ident = m.group(1)
+        if ident in stations_set:
+            start = m.start()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(raw_text)
+            blocks[ident] = raw_text[start:end]
     return blocks
 
 
@@ -211,12 +223,16 @@ def main():
         sys.exit(1)
 
     if not blocks:
-        # Nothing matched — send back a preview of what we actually got
-        # so we can diagnose (wrong format, error page, empty file, etc.)
-        preview = raw[:600].replace("<", "&lt;").replace(">", "&gt;")
+        # Nothing matched — send back diagnostics so we can tell whether
+        # it's a wrong identifier, wrong format, or an empty/error file.
+        total_headers = len(HEADER_RE.findall(raw))
+        found_as_text = {s: (s in raw) for s in STATIONS}
+        preview = raw[:400].replace("<", "&lt;").replace(">", "&gt;")
         send_telegram(
-            f"⚠️ NBM fetch succeeded ({len(raw)} chars) but no station "
-            f"blocks matched.\n\nFirst 600 chars:\n<pre>{preview}</pre>"
+            f"⚠️ NBM fetch got {len(raw)} chars, {total_headers} station "
+            f"headers total, but none matched our 5 stations.\n\n"
+            f"Station appears anywhere in file? {found_as_text}\n\n"
+            f"First 400 chars:\n<pre>{preview}</pre>"
         )
         sys.exit(1)
 
