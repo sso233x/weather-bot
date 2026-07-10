@@ -8,7 +8,7 @@ Polymarket temperature markets (TXN, XND, current conditions), and
 sends a summary to Telegram.
 
 Free data sources, no API keys needed for weather data:
-  - NBM text bulletins: https://blend.mdl.nws.noaa.gov/nbm-text/
+  - NBM text bulletins: https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/
   - METAR obs:          https://aviationweather.gov/data/api/
 
 Only Telegram needs credentials (also free) — see README.md.
@@ -39,7 +39,7 @@ NBM_CYCLE = os.environ.get("NBM_CYCLE", "01")
 XND_SKIP_THRESHOLD = 3       # skip / low-confidence if spread >= this
 XND_GOOD_MAX = 2             # XND of 1-2 treated as a green light
 
-NBM_TEXT_URL = "https://blend.mdl.nws.noaa.gov/nbm-text/"
+NBM_TEXT_BASE = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod"
 METAR_URL = "https://aviationweather.gov/api/data/metar"
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -50,18 +50,32 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # NBM text bulletin fetch + parse
 # ---------------------------------------------------------------------------
 
-def fetch_nbm_bulletins(stations, cycle):
+def fetch_nbm_bulletins(cycle):
     """
-    Fetches raw NBM 'NBS' (short-range) text bulletins for all given
-    stations in one request and returns the raw text.
+    Fetches the full NBM 'NBS' (short-range) bulk text file for the given
+    UTC cycle from NOAA's public NOMADS server. This file contains ALL
+    ~9000 NBM stations in one plain-text document — we filter down to our
+    stations after downloading.
+
+    URL pattern (confirmed against NOAA's own production data):
+    https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/
+        blend.YYYYMMDD/HH/text/blend_nbstx.tHHz
     """
-    params = {
-        "ele": "nbs",
-        "sta": ",".join(s.lower() for s in stations),
-        "cyc": cycle,
-        "download": "yes",
-    }
-    resp = requests.get(NBM_TEXT_URL, params=params, timeout=30)
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    ymd = now.strftime("%Y%m%d")
+    url = f"{NBM_TEXT_BASE}/blend.{ymd}/{cycle}/text/blend_nbstx.t{cycle}z"
+
+    resp = requests.get(url, timeout=60)
+    if resp.status_code == 404:
+        # Cycle for today may not be posted yet (e.g. running early, or
+        # clock skew across UTC midnight) — fall back to yesterday's date.
+        from datetime import timedelta
+        ymd_prev = (now - timedelta(days=1)).strftime("%Y%m%d")
+        url = f"{NBM_TEXT_BASE}/blend.{ymd_prev}/{cycle}/text/blend_nbstx.t{cycle}z"
+        resp = requests.get(url, timeout=60)
+
     resp.raise_for_status()
     return resp.text
 
@@ -189,7 +203,7 @@ def send_telegram(message):
 
 def main():
     try:
-        raw = fetch_nbm_bulletins(STATIONS.keys(), NBM_CYCLE)
+        raw = fetch_nbm_bulletins(NBM_CYCLE)
         blocks = split_by_station(raw, STATIONS.keys())
     except Exception as e:
         send_telegram(f"⚠️ NBM pull failed: {e}")
