@@ -76,6 +76,7 @@ def fetch_nbm_bulletins(cycle):
         url = f"{NBM_TEXT_BASE}/blend.{ymd_prev}/{cycle}/text/blend_nbstx.t{cycle}z"
         resp = requests.get(url, timeout=60)
 
+    print(f"Fetched NBM data from: {url} (status {resp.status_code})")
     resp.raise_for_status()
     return resp.text
 
@@ -207,6 +208,16 @@ def main():
         blocks = split_by_station(raw, STATIONS.keys())
     except Exception as e:
         send_telegram(f"⚠️ NBM pull failed: {e}")
+        sys.exit(1)
+
+    if not blocks:
+        # Nothing matched — send back a preview of what we actually got
+        # so we can diagnose (wrong format, error page, empty file, etc.)
+        preview = raw[:600].replace("<", "&lt;").replace(">", "&gt;")
+        send_telegram(
+            f"⚠️ NBM fetch succeeded ({len(raw)} chars) but no station "
+            f"blocks matched.\n\nFirst 600 chars:\n<pre>{preview}</pre>"
+        )
         sys.exit(1)
 
     try:
