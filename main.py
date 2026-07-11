@@ -57,7 +57,9 @@ def main():
     history = load_history()
     target_date = date.today() + timedelta(days=1)  # "tomorrow's" market, adjust if running for today
 
-    lines = [f"<b>Signal check — NBM {NBM_CYCLE}Z cycle — {target_date}</b>"]
+    REC_EMOJI = {"GO": "🟢", "WATCH": "🟡", "SKIP": "🔴"}
+
+    lines = [f"📅 <b>Signal Check</b> — {NBM_CYCLE}Z — {target_date}\n"]
 
     for code, city in CITIES.items():
         station = city["station"]
@@ -96,23 +98,37 @@ def main():
         )
         result = score_setup(setup)
 
-        lines.append(f"\n<b>{city['name']} ({station})</b> — {result.recommendation} ({result.confidence:.0%})")
+        emoji = REC_EMOJI.get(result.recommendation, "⚪")
+        lines.append(f"{emoji} <b>{city['name']}</b> — {result.recommendation} ({result.confidence:.0%})")
+
+        stat_bits = []
         if latest_txn is not None:
-            lines.append(f"  TXN: {latest_txn}°F | XND: {latest_xnd}")
+            stat_bits.append(f"TXN {latest_txn}°F")
+        if latest_xnd is not None:
+            stat_bits.append(f"XND {latest_xnd}")
         if setup.metar_f is not None:
-            lines.append(f"  METAR now: {setup.metar_f}°F")
-        if gridpoint is not None:
-            lines.append(f"  NWS gridpoint: {gridpoint}°F")
+            stat_bits.append(f"now {setup.metar_f}°F")
         if bucket_label:
-            lines.append(f"  Market bucket: {bucket_label} @ {market_price:.2f}")
-        elif event is None:
-            lines.append(f"  Market: event not found at slug '{slug}' (wrong slug, or not posted yet)")
-        elif not outcomes:
-            lines.append(f"  Market: event found ({len(event.get('markets', []))} sub-markets) but none parsed as buckets")
-        else:
-            lines.append(f"  Market: {len(outcomes)} buckets found, but TXN {latest_txn}F didn't match any range")
+            stat_bits.append(f"bucket {bucket_label} @ {market_price:.2f}")
+        lines.append("   " + " · ".join(stat_bits) if stat_bits else "   no data")
+
+        # Only surface the notes that actually change the picture -- skip
+        # routine confirmations to keep this scannable on a phone.
+        highlights = []
         for n in result.notes:
-            lines.append(f"  • {n}")
+            if any(kw in n for kw in ("HARD SKIP", "contradict", "outside", "diverge",
+                                       "can't", "unstable", "not found", "didn't match")):
+                highlights.append(n)
+        for h in highlights:
+            lines.append(f"   ⚠️ {h}")
+
+        if not bucket_label:
+            if event is None:
+                lines.append(f"   ⚠️ market event not found (slug: {slug})")
+            elif not outcomes:
+                lines.append(f"   ⚠️ event found but no buckets parsed")
+
+        lines.append("")
 
     save_history(history)
 
