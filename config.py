@@ -24,4 +24,3 @@ ALL_STATIONS = sorted({c["station"] for c in CITIES.values()})
 
 XND_SKIP_THRESHOLD = 3
 MIN_CONFIDENCE_TO_ACT = 0.70
-
