@@ -105,8 +105,12 @@ def main():
             lines.append(f"  NWS gridpoint: {gridpoint}°F")
         if bucket_label:
             lines.append(f"  Market bucket: {bucket_label} @ {market_price:.2f}")
+        elif event is None:
+            lines.append(f"  Market: event not found at slug '{slug}' (wrong slug, or not posted yet)")
+        elif not outcomes:
+            lines.append(f"  Market: event found ({len(event.get('markets', []))} sub-markets) but none parsed as buckets")
         else:
-            lines.append(f"  Market: no matching bucket found (event may not be posted yet)")
+            lines.append(f"  Market: {len(outcomes)} buckets found, but TXN {latest_txn}F didn't match any range")
         for n in result.notes:
             lines.append(f"  • {n}")
 
