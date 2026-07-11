@@ -70,7 +70,12 @@ def score_setup(setup: CitySetup) -> ScoreResult:
         raw += (1.0 if inside else 0.0) * weights["txn_position"]
         notes.append(f"latest TXN {txn}F is {'inside/above' if inside else 'below'} bucket")
     else:
-        notes.append("no TXN data for position check")
+        missing = []
+        if not setup.txn_history:
+            missing.append("TXN")
+        if setup.market_bucket_low is None:
+            missing.append("market bucket")
+        notes.append(f"can't check TXN position -- missing: {', '.join(missing)}")
 
     # -- XND --
     if setup.latest_xnd is not None:
@@ -113,7 +118,14 @@ def score_setup(setup: CitySetup) -> ScoreResult:
             f"{'confirms' if agree else 'contradicts'} NBM bucket side"
         )
     else:
-        notes.append("no gridpoint data (not day-of, or fetch failed)")
+        missing = []
+        if setup.gridpoint_max_f is None:
+            missing.append("gridpoint fetch")
+        if not setup.txn_history:
+            missing.append("TXN")
+        if setup.market_bucket_low is None:
+            missing.append("market bucket")
+        notes.append(f"can't check gridpoint agreement -- missing: {', '.join(missing)}")
 
     # -- margin to nearest bucket edge --
     if setup.txn_history and setup.market_bucket_low is not None and setup.market_bucket_high is not None:
@@ -123,7 +135,12 @@ def score_setup(setup: CitySetup) -> ScoreResult:
         raw += score * weights["margin_to_edge"]
         notes.append(f"{margin:.1f}F cushion from nearest bucket edge")
     else:
-        notes.append("insufficient data for margin calc")
+        missing = []
+        if not setup.txn_history:
+            missing.append("TXN")
+        if setup.market_bucket_low is None or setup.market_bucket_high is None:
+            missing.append("market bucket")
+        notes.append(f"can't calc margin to edge -- missing: {', '.join(missing)}")
 
     # -- price band --
     if setup.market_price is not None:
