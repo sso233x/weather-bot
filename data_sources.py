@@ -3,6 +3,7 @@ data_sources.py — all external data pulls, kept separate from scoring logic
 so each fetcher can be tested/swapped independently.
 """
 
+import json
 import re
 from datetime import datetime, timezone, timedelta
 
@@ -159,30 +160,44 @@ BUCKET_RE = re.compile(r"(\d+)\s*-\s*(\d+)")
 
 def parse_outcomes(event: dict):
     """
-    Returns a list of (label, low_f, high_f, price) for each outcome bucket
-    in the event's first market. Skips "or below"/"or above" catch-all bins
-    since they don't have a clean two-sided numeric range.
+    Polymarket structures a multi-bucket temperature event as ONE event
+    containing MULTIPLE markets -- one market per bucket, each phrased as
+    its own Yes/No question (e.g. "Will LA's high be 76-77F? Yes/No").
+    This is the same pattern Polymarket uses for any grouped/multi-outcome
+    event (e.g. "who wins the election" = one market per candidate).
+
+    Returns a list of (label, low_f, high_f, yes_price) for each bucket
+    market found in the event.
     """
     if not event or not event.get("markets"):
         return []
-    market = event["markets"][0]
-    outcomes = market.get("outcomes")
-    prices = market.get("outcomePrices")
-    if isinstance(outcomes, str):
-        import json as _json
-        outcomes = _json.loads(outcomes)
-    if isinstance(prices, str):
-        import json as _json
-        prices = _json.loads(prices)
-    if not outcomes or not prices:
-        return []
 
     parsed = []
-    for label, price in zip(outcomes, prices):
-        m = BUCKET_RE.search(label)
-        if m:
-            lo, hi = float(m.group(1)), float(m.group(2))
-            parsed.append((label, lo, hi, float(price)))
+    for market in event["markets"]:
+        label_source = market.get("groupItemTitle") or market.get("question", "")
+        m = BUCKET_RE.search(label_source)
+        if not m:
+            continue
+        lo, hi = float(m.group(1)), float(m.group(2))
+
+        outcomes = market.get("outcomes")
+        prices = market.get("outcomePrices")
+        if isinstance(outcomes, str):
+            outcomes = json.loads(outcomes)
+        if isinstance(prices, str):
+            prices = json.loads(prices)
+        if not outcomes or not prices:
+            continue
+
+        yes_price = None
+        for o, p in zip(outcomes, prices):
+            if str(o).strip().lower() == "yes":
+                yes_price = float(p)
+                break
+        if yes_price is None:
+            yes_price = float(prices[0])
+
+        parsed.append((label_source, lo, hi, yes_price))
     return parsed
 
 
