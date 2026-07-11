@@ -2,8 +2,14 @@ name: Weather Check
 
 on:
   schedule:
-    - cron: "45 1 * * *"
-    - cron: "45 13 * * *"
+    # ~00:15 UTC = ~8:15pm EDT / 7:15pm EST — well before midnight ET
+    # even with a multi-hour GitHub Actions scheduling delay
+    - cron: "15 0 * * *"
+    # ~09:15 UTC = ~5:15am EDT / 4:15am EST — well before noon ET,
+    # and the NBM 07Z cycle is reliably available by this hour
+    # (13Z isn't disseminated until ~14:00-16:00 UTC, too late for a
+    # noon deadline once you factor in scheduling delay)
+    - cron: "15 9 * * *"
   workflow_dispatch:
     inputs:
       nbm_cycle:
@@ -32,8 +38,8 @@ jobs:
       - name: Determine NBM cycle
         id: cycle
         run: |
-          if [ "${{ github.event.schedule }}" = "45 13 * * *" ]; then
-            echo "value=13" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event.schedule }}" = "15 9 * * *" ]; then
+            echo "value=07" >> "$GITHUB_OUTPUT"
           elif [ -n "${{ github.event.inputs.nbm_cycle }}" ]; then
             echo "value=${{ github.event.inputs.nbm_cycle }}" >> "$GITHUB_OUTPUT"
           else
