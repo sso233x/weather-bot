@@ -17,10 +17,11 @@ CITIES = {
     "ORD": {"name": "Chicago", "station": "KORD",
             "lat": 41.9742, "lon": -87.9073, "slug": "chicago"},
     "LGA": {"name": "New York City", "station": "KLGA",
-            "lat": 40.7769, "lon": -73.8740, "slug": "new-york-city"},  # VERIFY slug
+            "lat": 40.7769, "lon": -73.8740, "slug": "nyc"},
 }
 
 ALL_STATIONS = sorted({c["station"] for c in CITIES.values()})
 
 XND_SKIP_THRESHOLD = 3
 MIN_CONFIDENCE_TO_ACT = 0.70
+
