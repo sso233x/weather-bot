@@ -18,6 +18,7 @@ from data_sources import (
 )
 from history import load_history, save_history, record_run, recent_values
 from scoring import CitySetup, score_setup
+from log import log_prediction
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -97,6 +98,8 @@ def main():
             market_price=market_price,
         )
         result = score_setup(setup)
+        log_prediction(code, station, str(target_date), latest_txn, latest_xnd,
+                        bucket_label, market_price, result)
 
         emoji = REC_EMOJI.get(result.recommendation, "⚪")
         lines.append(f"{emoji} <b>{city['name']}</b> — {result.recommendation} ({result.confidence:.0%})")
