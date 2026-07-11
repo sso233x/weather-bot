@@ -7,7 +7,8 @@ sends a Telegram summary. Does not place trades.
 
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -56,7 +57,19 @@ def main():
         metar_data = {}
 
     history = load_history()
-    target_date = date.today() + timedelta(days=1)  # "tomorrow's" market, adjust if running for today
+    # Use US/Eastern calendar day, not the server's UTC day -- the evening
+    # run fires right around the UTC midnight rollover (00:15 UTC is still
+    # only ~8:15pm ET), so using UTC's date() would silently push the
+    # target date a full day too far ahead on that run specifically.
+    ET = ZoneInfo("America/New_York")
+    today_et = datetime.now(ET).date()
+    if NBM_CYCLE == "01":
+        # evening run: predicting tomorrow's market
+        target_date = today_et + timedelta(days=1)
+    else:
+        # morning-of run (07Z/13Z/etc): reconfirming today's market,
+        # which is the same date the prior evening run predicted
+        target_date = today_et
 
     REC_EMOJI = {"GO": "🟢", "WATCH": "🟡", "SKIP": "🔴"}
 
