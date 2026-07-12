@@ -54,6 +54,57 @@ def summarize(rows):
         "in scoring.py's DEFAULT_WEIGHTS."
     )
 
+    MIN_SAMPLE = 15  # below this, flag instead of trusting the number
+
+    print("\nWin rate by city:")
+    by_city = {}
+    for r in rows:
+        by_city.setdefault(r["city"], []).append(int(r["outcome_win"]))
+    for city, outcomes in sorted(by_city.items()):
+        wr = sum(outcomes) / len(outcomes)
+        flag = "" if len(outcomes) >= MIN_SAMPLE else f"  <-- only {len(outcomes)}, not reliable yet"
+        print(f"  {city:5s}: n={len(outcomes):3d}  win rate={wr:.1%}{flag}")
+
+    print("\nWin rate by XND value (overall):")
+    by_xnd = {}
+    for r in rows:
+        by_xnd.setdefault(r["xnd"], []).append(int(r["outcome_win"]))
+    for xnd, outcomes in sorted(by_xnd.items()):
+        wr = sum(outcomes) / len(outcomes)
+        flag = "" if len(outcomes) >= MIN_SAMPLE else f"  <-- only {len(outcomes)}, not reliable yet"
+        print(f"  XND={xnd}: n={len(outcomes):3d}  win rate={wr:.1%}{flag}")
+
+    print("\nWin rate by city + XND (tests city-specific dispersion rules, e.g. SFO/XND>=3):")
+    by_city_xnd = {}
+    for r in rows:
+        by_city_xnd.setdefault((r["city"], r["xnd"]), []).append(int(r["outcome_win"]))
+    for (city, xnd), outcomes in sorted(by_city_xnd.items()):
+        wr = sum(outcomes) / len(outcomes)
+        flag = "" if len(outcomes) >= MIN_SAMPLE else f"  <-- only {len(outcomes)}, not reliable yet"
+        print(f"  {city:5s} / XND={xnd}: n={len(outcomes):3d}  win rate={wr:.1%}{flag}")
+
+    print("\nAvg (TXN forecast - actual observed high) per city:")
+    print("  Positive = model runs HOT for that city. Negative = runs COLD.")
+    print("  Only uses rows where actual_high has been backfilled by check_outcomes.py.")
+    by_city_bias = {}
+    for r in rows:
+        actual = r.get("actual_high")
+        if not actual:
+            continue
+        try:
+            diff = float(r["txn"]) - float(actual)
+        except (ValueError, TypeError):
+            continue
+        by_city_bias.setdefault(r["city"], []).append(diff)
+    if not by_city_bias:
+        print("  No actual_high data yet -- run check_outcomes.py again to backfill it,")
+        print("  then re-run this script.")
+    else:
+        for city, diffs in sorted(by_city_bias.items()):
+            avg = sum(diffs) / len(diffs)
+            flag = "" if len(diffs) >= MIN_SAMPLE else f"  <-- only {len(diffs)}, not reliable yet"
+            print(f"  {city:5s}: {avg:+.1f}°F avg bias (n={len(diffs)}){flag}")
+
 
 def suggest_threshold(rows, target_win_rate=0.70):
     if len(rows) < 15:
