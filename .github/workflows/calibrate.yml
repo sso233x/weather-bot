@@ -1,6 +1,11 @@
 name: Calibrate
 
 on:
+  schedule:
+    # 08:20 UTC -- runs 20 min after check-outcomes.yml (08:00 UTC) so this
+    # picks up that day's freshly committed trade_log.csv, including any
+    # newly backfilled actual_high values.
+    - cron: "20 8 * * *"
   workflow_dispatch: {}
 
 jobs:
