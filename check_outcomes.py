@@ -15,7 +15,9 @@ from datetime import date, datetime
 import requests
 
 from config import CITIES
-from data_sources import build_event_slug, fetch_market_by_slug, parse_outcomes
+from data_sources import (
+    build_event_slug, fetch_market_by_slug, parse_outcomes, fetch_actual_high,
+)
 from log import LOG_FILE, FIELDNAMES
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -75,12 +77,15 @@ def main():
     with open(LOG_FILE, newline="") as f:
         rows = list(csv.DictReader(f))
 
+    # Older rows logged before actual_high was tracked won't have the key
+    # at all -- normalize so every row has it before we do anything else.
+    for row in rows:
+        row.setdefault("actual_high", "")
+
     today = date.today()
     resolved_summary = []
 
     for row in rows:
-        if row["outcome_win"] not in ("", None):
-            continue  # already resolved
         try:
             target_date = date.fromisoformat(row["target_date"])
         except ValueError:
@@ -88,15 +93,27 @@ def main():
         if target_date >= today:
             continue  # market hasn't happened yet
 
-        outcome = check_one(row["city"], row["target_date"], row["market_bucket_label"])
-        if outcome is None:
-            continue
-        row["outcome_win"] = int(outcome)
-        resolved_summary.append(
-            f"{'✅' if outcome else '❌'} {row['city']} {row['target_date']}: "
-            f"predicted {row['market_bucket_label']} ({row['recommendation']}, "
-            f"{float(row['confidence']):.0%}) -> {'WIN' if outcome else 'LOSS'}"
-        )
+        station = row.get("station") or CITIES.get(row["city"], {}).get("station")
+
+        already_resolved = row["outcome_win"] not in ("", None)
+
+        if not already_resolved:
+            outcome = check_one(row["city"], row["target_date"], row["market_bucket_label"])
+            if outcome is None:
+                continue
+            row["outcome_win"] = int(outcome)
+            resolved_summary.append(
+                f"{'✅' if outcome else '❌'} {row['city']} {row['target_date']}: "
+                f"predicted {row['market_bucket_label']} ({row['recommendation']}, "
+                f"{float(row['confidence']):.0%}) -> {'WIN' if outcome else 'LOSS'}"
+            )
+
+        # Backfill actual_high for any row missing it -- newly resolved
+        # rows and previously-resolved rows logged before this field existed.
+        if not row.get("actual_high") and station:
+            actual = fetch_actual_high(station, target_date)
+            if actual is not None:
+                row["actual_high"] = actual
 
     with open(LOG_FILE, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
