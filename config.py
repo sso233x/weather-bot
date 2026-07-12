@@ -22,5 +22,17 @@ CITIES = {
 
 ALL_STATIONS = sorted({c["station"] for c in CITIES.values()})
 
+# IEM ASOS network code per station -- needed to pull actual observed daily
+# highs from the Iowa Environmental Mesonet archive (used to check forecast
+# bias per city, e.g. "does MIA run hot"). Station must belong to exactly
+# one state ASOS network for this API.
+STATION_NETWORK = {
+    "KLAX": "CA_ASOS",
+    "KSFO": "CA_ASOS",
+    "KMIA": "FL_ASOS",
+    "KORD": "IL_ASOS",
+    "KLGA": "NY_ASOS",
+}
+
 XND_SKIP_THRESHOLD = 3
 MIN_CONFIDENCE_TO_ACT = 0.70
