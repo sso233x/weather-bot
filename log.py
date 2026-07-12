@@ -12,7 +12,7 @@ LOG_FILE = os.path.join(os.path.dirname(__file__), "trade_log.csv")
 FIELDNAMES = [
     "logged_at", "city", "station", "target_date", "txn", "xnd",
     "market_bucket_label", "market_price", "confidence", "raw_score",
-    "recommendation", "outcome_win", "notes",
+    "recommendation", "outcome_win", "actual_high", "notes",
 ]
 
 
@@ -36,5 +36,6 @@ def log_prediction(city_code, station, target_date, txn, xnd,
             "raw_score": result.raw_score,
             "recommendation": result.recommendation,
             "outcome_win": "",  # filled in later by check_outcomes.py
+            "actual_high": "",  # filled in later by check_outcomes.py
             "notes": " | ".join(result.notes),
         })
