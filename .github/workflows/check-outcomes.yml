@@ -2,8 +2,13 @@ name: Check Outcomes
 
 on:
   schedule:
-    # 08:00 UTC (~4am ET) — gives prior day's markets time to resolve
-    - cron: "0 8 * * *"
+    # 12:20 UTC = ~8:20am EDT -- runs 20 min AFTER Polymarket's 8am ET
+    # settlement, not before it. (Previously ran at 08:00 UTC / ~4am ET,
+    # which was 4 hours before that day's settlement completed, causing
+    # every market's outcome to be picked up a full day later than
+    # necessary.) Like weather-check.yml, this drifts by an hour once
+    # EST begins in Nov (8am ET becomes 13:00 UTC) -- adjust then.
+    - cron: "20 12 * * *"
   workflow_dispatch: {}
 
 permissions:
