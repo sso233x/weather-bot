@@ -18,7 +18,28 @@ def load_resolved_rows():
         print(f"No {LOG_FILE} found yet.")
         return []
     with open(LOG_FILE) as f:
-        return [r for r in csv.DictReader(f) if r["outcome_win"] not in ("", None)]
+        all_rows = [r for r in csv.DictReader(f) if r["outcome_win"] not in ("", None)]
+
+    # Historical duplicate protection: before log.py was fixed to upsert,
+    # (and for any manual re-runs) the same real-world market could have
+    # multiple logged rows for the same (city, target_date), each
+    # independently resolved. Counting all of them inflates n and
+    # corrupts win-rate stats. Keep only the LATEST snapshot per
+    # (city, target_date) -- that's the one closest to what you'd have
+    # actually acted on.
+    latest_by_market = {}
+    for r in all_rows:
+        key = (r["city"], r["target_date"])
+        existing = latest_by_market.get(key)
+        if existing is None or r["logged_at"] > existing["logged_at"]:
+            latest_by_market[key] = r
+
+    deduped = list(latest_by_market.values())
+    dropped = len(all_rows) - len(deduped)
+    if dropped:
+        print(f"(Deduped {dropped} duplicate same-market rows -- "
+              f"{len(all_rows)} logged rows -> {len(deduped)} unique markets)\n")
+    return deduped
 
 
 def summarize(rows):
