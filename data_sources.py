@@ -150,9 +150,13 @@ def fetch_actual_high(station: str, target_date) -> float | None:
     if not network:
         print(f"No IEM network mapping for station {station}, skipping actual-high fetch.")
         return None
+    # IEM's station tables use the 3-char FAA identifier (e.g. "LAX"), not
+    # the 4-char ICAO identifier with the "K" prefix used everywhere else
+    # in this bot (METAR, NBM, gridpoint). Strip it for this one call.
+    iem_station = station[1:] if len(station) == 4 and station.startswith("K") else station
     date_str = target_date.isoformat() if hasattr(target_date, "isoformat") else str(target_date)
     params = {
-        "stations": station,
+        "stations": iem_station,
         "network": network,
         "sts": date_str,
         "ets": date_str,
@@ -164,14 +168,19 @@ def fetch_actual_high(station: str, target_date) -> float | None:
         resp.raise_for_status()
         lines = [l for l in resp.text.strip().splitlines() if l and not l.startswith("#")]
         if len(lines) < 2:
+            print(f"IEM returned no data row for {iem_station} ({network}) on {date_str}. "
+                  f"Raw response: {resp.text[:200]!r}")
             return None
         header = lines[0].split(",")
         row = lines[1].split(",")
         idx = header.index("max_temp_f")
         val = row[idx].strip()
-        return float(val) if val not in ("", "M", "None") else None
+        if val in ("", "M", "None"):
+            print(f"IEM has no max_temp_f value for {iem_station} on {date_str} (got {val!r}).")
+            return None
+        return float(val)
     except Exception as e:
-        print(f"Actual-high fetch failed for {station} {date_str}: {e}")
+        print(f"Actual-high fetch failed for {iem_station} {date_str}: {e}")
         return None
 
 
