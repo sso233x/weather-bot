@@ -152,12 +152,12 @@ def fetch_actual_high(station: str, target_date) -> float | None:
         return None
     date_str = target_date.isoformat() if hasattr(target_date, "isoformat") else str(target_date)
     params = {
-        "station": station,
+        "stations": station,
         "network": network,
         "sts": date_str,
         "ets": date_str,
         "var": "max_temp_f",
-        "format": "comma",
+        "format": "csv",
     }
     try:
         resp = requests.get(IEM_DAILY_URL, params=params, timeout=30)
