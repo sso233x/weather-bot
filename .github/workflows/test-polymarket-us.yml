@@ -1,0 +1,25 @@
+name: Test Polymarket US API
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests cryptography
+
+      - name: Run diagnostic
+        env:
+          POLYMARKET_US_KEY_ID: ${{ secrets.POLYMARKET_US_KEY_ID }}
+          POLYMARKET_US_SECRET_KEY: ${{ secrets.POLYMARKET_US_SECRET_KEY }}
+        run: python test_polymarket_us_api.py
