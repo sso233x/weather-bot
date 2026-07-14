@@ -65,13 +65,16 @@ def main():
     # target date a full day too far ahead on that run specifically.
     ET = ZoneInfo("America/New_York")
     today_et = datetime.now(ET).date()
-    if NBM_CYCLE == "01":
-        # evening run: predicting tomorrow's market
-        target_date = today_et + timedelta(days=1)
-    else:
-        # morning-of run (07Z/13Z/etc): reconfirming today's market,
-        # which is the same date the prior evening run predicted
-        target_date = today_et
+    # ALWAYS tomorrow, regardless of cycle. Confirmed via a column-level
+    # diagnostic on 2026-07-14: at 13Z, the TXN row's first value sits
+    # under the "JUL 15" (tomorrow) day-span, not "JUL 14" (today) --
+    # NBM doesn't repost a distinct TXN entry for a day that's already
+    # mostly elapsed by the time a midday cycle runs. Previously this
+    # branched to today_et for non-01 cycles, which silently paired
+    # tomorrow's TXN value with today's date and produced physically
+    # impossible output (forecast high below the already-observed
+    # current temp).
+    target_date = today_et + timedelta(days=1)
 
     REC_EMOJI = {"GO": "🟢", "WATCH": "🟡", "SKIP": "🔴"}
 
