@@ -65,45 +65,45 @@ def try_get(full_path: str):
 if __name__ == "__main__":
     import json
 
-    print(f"Testing against KEY_ID={KEY_ID[:8]}...")
+    # CONFIRMED from docs.polymarket.us/api-reference/introduction:
+    # api.polymarket.us = authenticated TRADING api (orders/positions) --
+    #   NOT for market browsing, which explains the weird fixed NFL data.
+    # gateway.polymarket.us = PUBLIC market data API (markets, events,
+    #   series, search) -- NO API key needed at all. This is the one we
+    #   actually want. Dropping Ed25519 signing entirely for these calls.
 
-    # Round 3 showed: bare /v1/markets always returns the same 20 NFL
-    # games regardless of ?limit or ?category=weather -- both silently
-    # ignored, no pagination metadata in the response. Round 4: user says
-    # the app itself labels this category "Temp", not "Weather" -- try
-    # that exact value, plus common pagination param name guesses to get
-    # past this fixed first page.
+    GATEWAY_URL = "https://gateway.polymarket.us"
 
-    def check_markets(path):
-        print(f"\n--- GET {BASE_URL}{path} ---")
-        path_only = path.split("?", 1)[0]
-        headers = auth_headers("GET", path_only)
-        resp = requests.get(BASE_URL + path, headers=headers, timeout=20)
-        print(f"Status: {resp.status_code}")
+    def check_public(path):
+        print(f"\n--- GET {GATEWAY_URL}{path} ---")
         try:
-            data = resp.json()
-        except Exception:
-            print(f"Not JSON: {resp.text[:300]}")
-            return
-        markets = data.get("markets", [])
-        cats = sorted({m.get("category") for m in markets if m.get("category")})
-        ids = [m.get("id") for m in markets[:5]]
-        print(f"  n={len(markets)}  categories={cats}  first_ids={ids}")
+            resp = requests.get(GATEWAY_URL + path, timeout=20)
+            print(f"Status: {resp.status_code}")
+            try:
+                data = resp.json()
+                if isinstance(data, dict) and "markets" in data:
+                    markets = data["markets"]
+                    cats = sorted({m.get("category") for m in markets if m.get("category")})
+                    print(f"  n={len(markets)}  categories={cats}")
+                    temp_hits = [m for m in markets if (m.get("category") or "").lower() == "temp"]
+                    for m in temp_hits[:10]:
+                        print(f"  TEMP: slug={m.get('slug')!r} question={m.get('question')!r}")
+                elif isinstance(data, dict) and "events" in data:
+                    events = data["events"]
+                    print(f"  n={len(events)} events")
+                    for e in events[:5]:
+                        print(f"    slug={e.get('slug')!r} title={e.get('title') or e.get('question')!r} category={e.get('category')!r}")
+                else:
+                    print(f"  Top-level keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+                    print(f"  Body (first 500 chars): {resp.text[:500]}")
+            except Exception:
+                print(f"  Not JSON: {resp.text[:300]}")
+        except Exception as e:
+            print(f"  Request failed: {e}")
 
-    # Exact label from the app
-    check_markets("/v1/markets?category=Temp")
-    check_markets("/v1/markets?category=temp")
-    check_markets("/v1/markets?tag=Temp")
-
-    # Pagination param name guesses -- if any of these actually change
-    # first_ids/categories from the baseline (sports, ids 1-5), that's
-    # the real param name.
-    check_markets("/v1/markets?offset=20")
-    check_markets("/v1/markets?page=2")
-    check_markets("/v1/markets?cursor=20")
-    check_markets("/v1/markets?per_page=200")
-    check_markets("/v1/markets?pageSize=200")
-
-    # Direct slug guess based on how the app might name a temp contract
-    try_get("/v1/markets/slug/temp-nyc-2026-07-14")
+    check_public("/v1/markets")
+    check_public("/v1/markets?category=Temp")
+    check_public("/v1/events")
+    check_public("/v1/series")
+    check_public("/v1/search?query=temp")
 
