@@ -255,10 +255,16 @@ def parse_outcomes(event: dict):
 
 
 def find_bucket_for_temp(outcomes, temp_f: float):
-    for label, lo, hi, price in outcomes:
-        if lo <= temp_f <= hi:
-            return label, lo, hi, price
-    return None
+    """Returns the NARROWEST matching bucket, not just the first one.
+    Open-ended buckets (e.g. "<=73F") use a deliberately wide sentinel
+    range internally so this lo<=temp<=hi check still works -- but that
+    means a wide catch-all bucket can accidentally match before a
+    tighter, more specific bucket does, if it happens to appear earlier
+    in the list. Preferring the narrowest match fixes that."""
+    matches = [(label, lo, hi, price) for label, lo, hi, price in outcomes if lo <= temp_f <= hi]
+    if not matches:
+        return None
+    return min(matches, key=lambda m: m[2] - m[1])
 
 
 # ---------------------------------------------------------------------------
@@ -339,8 +345,14 @@ def parse_polymarket_us_outcomes(event: dict):
         if yes_price is None:
             continue
 
-        # Use the market's own slug suffix as the label (e.g. reconstructing
-        # something readable) -- fall back to the description if needed.
-        label = f"{lo:.0f}-{hi:.0f}°F" if lo > -200 and hi < 300 else desc[:40]
+        # Use a clean label: normal range for closed buckets, readable
+        # threshold notation for open-ended ones -- not a truncated raw
+        # description, which used to cut off mid-sentence.
+        if lo > -200 and hi < 300:
+            label = f"{lo:.0f}-{hi:.0f}°F"
+        elif hi < 300:
+            label = f"<={hi:.0f}°F"
+        else:
+            label = f">={lo:.0f}°F"
         parsed.append((label, lo, hi, yes_price))
     return parsed
