@@ -5,6 +5,7 @@ scores each with the signal engine, updates persisted run history, and
 sends a Telegram summary. Does not place trades.
 """
 
+import html
 import os
 import sys
 from datetime import date, datetime, timedelta
@@ -141,11 +142,11 @@ def main():
         if setup.metar_f is not None:
             stat_bits.append(f"now {setup.metar_f}°F")
         if bucket_label:
-            stat_bits.append(f"bucket {bucket_label} @ {market_price:.2f}")
+            stat_bits.append(f"bucket {html.escape(bucket_label)} @ {market_price:.2f}")
         lines.append("   " + " · ".join(stat_bits) if stat_bits else "   no data")
 
         if app_bucket_label:
-            lines.append(f"   app: {app_bucket_label} @ {app_market_price:.2f}")
+            lines.append(f"   app: {html.escape(app_bucket_label)} @ {app_market_price:.2f}")
 
         # Only surface the notes that actually change the picture -- skip
         # routine confirmations to keep this scannable on a phone.
@@ -155,11 +156,11 @@ def main():
                                        "can't", "unstable", "not found", "didn't match")):
                 highlights.append(n)
         for h in highlights:
-            lines.append(f"   ⚠️ {h}")
+            lines.append(f"   ⚠️ {html.escape(h)}")
 
         if not bucket_label:
             if event is None:
-                lines.append(f"   ⚠️ market event not found (slug: {slug})")
+                lines.append(f"   ⚠️ market event not found (slug: {html.escape(slug)})")
             elif not outcomes:
                 lines.append(f"   ⚠️ event found but no buckets parsed")
 
