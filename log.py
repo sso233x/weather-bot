@@ -12,12 +12,15 @@ LOG_FILE = os.path.join(os.path.dirname(__file__), "trade_log.csv")
 FIELDNAMES = [
     "logged_at", "city", "station", "target_date", "txn", "xnd",
     "market_bucket_label", "market_price", "confidence", "raw_score",
-    "recommendation", "outcome_win", "actual_high", "notes",
+    "recommendation", "outcome_win", "actual_high",
+    "app_bucket_label", "app_market_price", "app_outcome_win",
+    "notes",
 ]
 
 
 def log_prediction(city_code, station, target_date, txn, xnd,
-                    bucket_label, market_price, result) -> None:
+                    bucket_label, market_price, result,
+                    app_bucket_label=None, app_market_price=None) -> None:
     """
     Upserts by (city, target_date): if an UNRESOLVED row already exists
     for this city/target_date (e.g. the bot ran again the same day, or
@@ -29,7 +32,12 @@ def log_prediction(city_code, station, target_date, txn, xnd,
     silently inflates n and corrupts win-rate/confidence stats.
 
     Already-RESOLVED rows (outcome_win set) are never touched here --
-    only check_outcomes.py should ever fill outcome_win/actual_high.
+    only check_outcomes.py should ever fill outcome_win/actual_high/
+    app_outcome_win.
+
+    app_bucket_label/app_market_price are the Polymarket US (app) side's
+    equivalent bucket and price, optional so existing callers still work
+    without changes.
     """
     target_date_str = str(target_date)
     new_row = {
@@ -46,6 +54,9 @@ def log_prediction(city_code, station, target_date, txn, xnd,
         "recommendation": result.recommendation,
         "outcome_win": "",  # filled in later by check_outcomes.py
         "actual_high": "",  # filled in later by check_outcomes.py
+        "app_bucket_label": app_bucket_label or "",
+        "app_market_price": app_market_price if app_market_price is not None else "",
+        "app_outcome_win": "",  # filled in later by check_outcomes.py
         "notes": " | ".join(result.notes),
     }
 
