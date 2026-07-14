@@ -259,3 +259,88 @@ def find_bucket_for_temp(outcomes, temp_f: float):
         if lo <= temp_f <= hi:
             return label, lo, hi, price
     return None
+
+
+# ---------------------------------------------------------------------------
+# Polymarket US (the app) — gateway.polymarket.us, PUBLIC, no auth needed.
+# Confirmed working 2026-07-14 via manual diagnostic. Settlement source is
+# the NWS Daily Climate Report (CLI) per docs.polymarket.us/faqs/weather-
+# faqs, at 8am ET the day after the contract date (same timing already
+# used for check-outcomes.yml).
+# ---------------------------------------------------------------------------
+
+POLYMARKET_US_GATEWAY = "https://gateway.polymarket.us"
+
+# Matches phrasing like "less than or equal to 89F" or "between 92F and 93F"
+# in each market's description field -- this is the only place bucket
+# bounds are stated in this API (unlike Gamma, there's no separate
+# groupItemTitle to parse instead).
+_US_RANGE_RE = re.compile(r"between (\d+)F and (\d+)F")
+_US_LTE_RE = re.compile(r"less than or equal to (\d+)F")
+_US_GTE_RE = re.compile(r"greater than or equal to (\d+)F")
+
+
+def build_polymarket_us_slug(us_station_slug: str, target_date) -> str:
+    date_str = target_date.isoformat() if hasattr(target_date, "isoformat") else str(target_date)
+    return f"temp-{us_station_slug}high-{date_str}"
+
+
+def fetch_polymarket_us_event(slug: str) -> dict | None:
+    try:
+        resp = requests.get(f"{POLYMARKET_US_GATEWAY}/v1/events/slug/{slug}", timeout=20)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json().get("event")
+    except Exception as e:
+        print(f"Polymarket US event fetch failed for slug={slug}: {e}")
+        return None
+
+
+def parse_polymarket_us_outcomes(event: dict):
+    """
+    Same return shape as parse_outcomes() (Gamma/website side): a list of
+    (label, low_f, high_f, yes_price) tuples, so both sources can share
+    find_bucket_for_temp() and downstream scoring/checking logic.
+
+    Open-ended buckets ("less than or equal to X", "greater than or equal
+    to X") get a wide sentinel bound on the open side so find_bucket_for_temp
+    still works with a simple lo <= temp <= hi check.
+    """
+    if not event or not event.get("markets"):
+        return []
+
+    parsed = []
+    for market in event["markets"]:
+        desc = market.get("description", "")
+
+        m = _US_RANGE_RE.search(desc)
+        if m:
+            lo, hi = float(m.group(1)), float(m.group(2))
+        else:
+            m = _US_LTE_RE.search(desc)
+            if m:
+                lo, hi = -200.0, float(m.group(1))
+            else:
+                m = _US_GTE_RE.search(desc)
+                if m:
+                    lo, hi = float(m.group(1)), 300.0
+                else:
+                    continue  # unrecognized description format, skip
+
+        yes_price = None
+        for side in market.get("marketSides", []):
+            if side.get("description", "").strip().lower() == "yes":
+                try:
+                    yes_price = float(side["price"])
+                except (KeyError, ValueError, TypeError):
+                    pass
+                break
+        if yes_price is None:
+            continue
+
+        # Use the market's own slug suffix as the label (e.g. reconstructing
+        # something readable) -- fall back to the description if needed.
+        label = f"{lo:.0f}-{hi:.0f}°F" if lo > -200 and hi < 300 else desc[:40]
+        parsed.append((label, lo, hi, yes_price))
+    return parsed
