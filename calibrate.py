@@ -104,7 +104,23 @@ def summarize(rows):
         flag = "" if len(outcomes) >= MIN_SAMPLE else f"  <-- only {len(outcomes)}, not reliable yet"
         print(f"  {city:5s} / XND={xnd}: n={len(outcomes):3d}  win rate={wr:.1%}{flag}")
 
-    print("\nAvg (TXN forecast - actual observed high) per city:")
+    print("\nApp (Polymarket US) vs Website win rate, per city:")
+    print("  Only counts rows where BOTH sides have resolved.")
+    by_city_both = {}
+    for r in rows:
+        if r.get("app_outcome_win") in ("", None):
+            continue  # app side not resolved (or wasn't tracked) for this row
+        by_city_both.setdefault(r["city"], []).append(
+            (int(r["outcome_win"]), int(r["app_outcome_win"]))
+        )
+    if not by_city_both:
+        print("  No rows with both sides resolved yet.")
+    else:
+        for city, pairs in sorted(by_city_both.items()):
+            site_wr = sum(p[0] for p in pairs) / len(pairs)
+            app_wr = sum(p[1] for p in pairs) / len(pairs)
+            flag = "" if len(pairs) >= MIN_SAMPLE else f"  <-- only {len(pairs)}, not reliable yet"
+            print(f"  {city:5s}: website={site_wr:.1%}  app={app_wr:.1%}  (n={len(pairs)}){flag}")
     print("  Positive = model runs HOT for that city. Negative = runs COLD.")
     print("  Only uses rows where actual_high has been backfilled by check_outcomes.py.")
     by_city_bias = {}
