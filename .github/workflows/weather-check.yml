@@ -2,10 +2,14 @@ name: Weather Check
 
 on:
   schedule:
-    # 01:05 UTC = ~9:05pm EDT (shifts to 8:05pm once EST begins in Nov)
-    - cron: "5 1 * * *"
-    # 13:05 UTC = ~9:05am EDT (shifts to 8:05am once EST begins in Nov)
-    - cron: "5 13 * * *"
+    # 01:11 UTC = ~9:11pm EDT (shifts to 8:11pm once EST begins in Nov).
+    # Shifted off :05 -- round minute marks see more GitHub Actions
+    # scheduling congestion/delay. Today's runs landed ~2hrs late at the
+    # old :05 offset.
+    - cron: "11 1 * * *"
+    # 13:37 UTC = ~9:37am EDT (shifts to 8:37am once EST begins in Nov).
+    # Same congestion-avoidance shift, off :05.
+    - cron: "37 13 * * *"
   workflow_dispatch:
     inputs:
       nbm_cycle:
@@ -34,7 +38,7 @@ jobs:
       - name: Determine NBM cycle
         id: cycle
         run: |
-          if [ "${{ github.event.schedule }}" = "5 13 * * *" ]; then
+          if [ "${{ github.event.schedule }}" = "37 13 * * *" ]; then
             echo "value=07" >> "$GITHUB_OUTPUT"
           elif [ -n "${{ github.event.inputs.nbm_cycle }}" ]; then
             echo "value=${{ github.event.inputs.nbm_cycle }}" >> "$GITHUB_OUTPUT"
