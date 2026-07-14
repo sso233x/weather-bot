@@ -1,0 +1,34 @@
+name: Debug NBM Cycle
+
+on:
+  workflow_dispatch:
+    inputs:
+      station:
+        description: "Station to inspect (e.g. KMIA, KLAX)"
+        required: false
+        default: "KMIA"
+      cycle:
+        description: "NBM cycle (01, 07, 13, 19)"
+        required: false
+        default: "13"
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run diagnostic
+        env:
+          DEBUG_STATION: ${{ github.event.inputs.station }}
+          DEBUG_CYCLE: ${{ github.event.inputs.cycle }}
+        run: python debug_nbm_cycle.py
