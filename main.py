@@ -12,10 +12,11 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from config import CITIES
+from config import CITIES, US_STATION_SLUG
 from data_sources import (
     fetch_all_nbm, fetch_all_metar, fetch_gridpoint_max_temp_f,
     build_event_slug, fetch_market_by_slug, parse_outcomes, find_bucket_for_temp,
+    build_polymarket_us_slug, fetch_polymarket_us_event, parse_polymarket_us_outcomes,
 )
 from history import load_history, save_history, record_run, recent_values
 from scoring import CitySetup, score_setup
@@ -98,6 +99,20 @@ def main():
             if found:
                 bucket_label, bucket_low, bucket_high, market_price = found
 
+        # App side (Polymarket US) -- separate platform, separate order
+        # book, resolves against NWS CLI instead of the website's source.
+        # Confirmed different station for Chicago (mdw) and NYC (nyc).
+        us_station_slug = US_STATION_SLUG.get(code)
+        app_bucket_label = app_market_price = None
+        if us_station_slug:
+            app_slug = build_polymarket_us_slug(us_station_slug, target_date)
+            app_event = fetch_polymarket_us_event(app_slug)
+            app_outcomes = parse_polymarket_us_outcomes(app_event) if app_event else []
+            if app_outcomes and latest_txn is not None:
+                app_found = find_bucket_for_temp(app_outcomes, latest_txn)
+                if app_found:
+                    app_bucket_label, _, _, app_market_price = app_found
+
         setup = CitySetup(
             city_code=code,
             target_date=str(target_date),
@@ -112,7 +127,8 @@ def main():
         )
         result = score_setup(setup)
         log_prediction(code, station, str(target_date), latest_txn, latest_xnd,
-                        bucket_label, market_price, result)
+                        bucket_label, market_price, result,
+                        app_bucket_label, app_market_price)
 
         emoji = REC_EMOJI.get(result.recommendation, "⚪")
         lines.append(f"{emoji} <b>{city['name']}</b> — {result.recommendation} ({result.confidence:.0%})")
@@ -127,6 +143,9 @@ def main():
         if bucket_label:
             stat_bits.append(f"bucket {bucket_label} @ {market_price:.2f}")
         lines.append("   " + " · ".join(stat_bits) if stat_bits else "   no data")
+
+        if app_bucket_label:
+            lines.append(f"   app: {app_bucket_label} @ {app_market_price:.2f}")
 
         # Only surface the notes that actually change the picture -- skip
         # routine confirmations to keep this scannable on a phone.
