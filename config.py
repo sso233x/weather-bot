@@ -34,5 +34,20 @@ STATION_NETWORK = {
     "KLGA": "NY_ASOS",
 }
 
+# Polymarket US (the app) station-slug codes, confirmed via their public
+# gateway API on 2026-07-14. CONFIRMED DIFFERENT from the website/Gamma
+# side for Chicago and NYC -- this is the actual structural edge Merritt
+# identified early on, now verified directly rather than inferred:
+#   Chicago -> "mdw" (Midway/KMDW), NOT "ord" (O'Hare/KORD, the website side)
+#   NYC     -> "nyc" (Central Park/KNYC), NOT "lga" (LaGuardia, the website side)
+# LA/SF/Miami use the same airport on both platforms.
+US_STATION_SLUG = {
+    "LAX": "lax",
+    "SFO": "sfo",
+    "MIA": "mia",
+    "ORD": "mdw",
+    "LGA": "nyc",
+}
+
 XND_SKIP_THRESHOLD = 3
 MIN_CONFIDENCE_TO_ACT = 0.70
