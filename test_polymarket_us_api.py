@@ -44,11 +44,18 @@ def auth_headers(method: str, path: str) -> dict:
     }
 
 
-def try_get(path: str):
-    print(f"\n--- GET {BASE_URL}{path} ---")
+def try_get(full_path: str):
+    """full_path may include a query string (e.g. '/v1/markets?limit=5').
+    Per the docs, only the PATH portion is part of the signed message --
+    the query string is not. Signing the whole thing would produce a
+    valid-looking but wrong signature on any request with query params,
+    which would show up as a 401 that looks like 'wrong endpoint' instead
+    of what it actually is: a signing bug."""
+    path_only = full_path.split("?", 1)[0]
+    print(f"\n--- GET {BASE_URL}{full_path} ---")
     try:
-        headers = auth_headers("GET", path)
-        resp = requests.get(BASE_URL + path, headers=headers, timeout=20)
+        headers = auth_headers("GET", path_only)
+        resp = requests.get(BASE_URL + full_path, headers=headers, timeout=20)
         print(f"Status: {resp.status_code}")
         print(f"Body (first 500 chars): {resp.text[:500]}")
     except Exception as e:
@@ -58,16 +65,26 @@ def try_get(path: str):
 if __name__ == "__main__":
     print(f"Testing against KEY_ID={KEY_ID[:8]}...")
 
-    # 1. Simplest possible authenticated call -- confirms the signing
-    #    scheme itself works before worrying about market-specific paths.
-    try_get("/v1/whoami")
-    try_get("/whoami")
+    # CONFIRMED WORKING from round 1: base URL https://api.polymarket.us,
+    # /v1/ prefix, GET /v1/markets returns 200 with real data. Auth is
+    # correct. Round 2: find weather markets specifically.
 
-    # 2. A couple of plausible shapes for listing/searching events, based
-    #    on the endpoint names in the docs index ("Get Events", "Get
-    #    Market By Slug"). Real path is still unconfirmed -- this is
-    #    exactly what we're probing for.
-    try_get("/v1/events")
-    try_get("/events")
-    try_get("/v1/markets")
-    try_get("/markets")
+    # 1. Does /v1/markets support a category filter? (First round's sample
+    #    market had "category":"sports" -- weather may be a sibling value.)
+    try_get("/v1/markets?category=weather")
+
+    # 2. Pull a larger unfiltered page and just look for weather-flavored
+    #    content by eye (temperature, city names) rather than guessing the
+    #    exact filter param name.
+    try_get("/v1/markets?limit=200")
+
+    # 3. Series concept (docs mention "Get Series" / "Browse event
+    #    series") -- weather might be organized this way instead of
+    #    "events" like the international Gamma API.
+    try_get("/v1/series")
+    try_get("/v1/series?category=weather")
+
+    # 4. Search endpoint, if one exists at this tier.
+    try_get("/v1/search?query=temperature")
+    try_get("/v1/search?query=weather")
+
