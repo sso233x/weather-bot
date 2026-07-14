@@ -65,45 +65,25 @@ def try_get(full_path: str):
 if __name__ == "__main__":
     import json
 
-    # CONFIRMED from docs.polymarket.us/api-reference/introduction:
-    # api.polymarket.us = authenticated TRADING api (orders/positions) --
-    #   NOT for market browsing, which explains the weird fixed NFL data.
-    # gateway.polymarket.us = PUBLIC market data API (markets, events,
-    #   series, search) -- NO API key needed at all. This is the one we
-    #   actually want. Dropping Ed25519 signing entirely for these calls.
-
     GATEWAY_URL = "https://gateway.polymarket.us"
 
-    def check_public(path):
-        print(f"\n--- GET {GATEWAY_URL}{path} ---")
-        try:
-            resp = requests.get(GATEWAY_URL + path, timeout=20)
-            print(f"Status: {resp.status_code}")
-            try:
-                data = resp.json()
-                if isinstance(data, dict) and "markets" in data:
-                    markets = data["markets"]
-                    cats = sorted({m.get("category") for m in markets if m.get("category")})
-                    print(f"  n={len(markets)}  categories={cats}")
-                    temp_hits = [m for m in markets if (m.get("category") or "").lower() == "temp"]
-                    for m in temp_hits[:10]:
-                        print(f"  TEMP: slug={m.get('slug')!r} question={m.get('question')!r}")
-                elif isinstance(data, dict) and "events" in data:
-                    events = data["events"]
-                    print(f"  n={len(events)} events")
-                    for e in events[:5]:
-                        print(f"    slug={e.get('slug')!r} title={e.get('title') or e.get('question')!r} category={e.get('category')!r}")
-                else:
-                    print(f"  Top-level keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
-                    print(f"  Body (first 500 chars): {resp.text[:500]}")
-            except Exception:
-                print(f"  Not JSON: {resp.text[:300]}")
-        except Exception as e:
-            print(f"  Request failed: {e}")
+    # CONFIRMED: search?query=temp finds live "climate" category events
+    # with slug pattern temp-{station}high-{YYYY-MM-DD}. Station codes
+    # confirm the original hypothesis: mdw (not ord) for Chicago, nyc
+    # (not lga) for NYC. Now fetching one full event to see the actual
+    # bucket/price schema.
 
-    check_public("/v1/markets")
-    check_public("/v1/markets?category=Temp")
-    check_public("/v1/events")
-    check_public("/v1/series")
-    check_public("/v1/search?query=temp")
+    for slug in [
+        "temp-miahigh-2026-07-14",
+        "temp-laxhigh-2026-07-14",
+    ]:
+        print(f"\n=== Event by slug: {slug} ===")
+        for path in [f"/v1/events/slug/{slug}", f"/v1/events?slug={slug}"]:
+            print(f"\n--- GET {GATEWAY_URL}{path} ---")
+            try:
+                resp = requests.get(GATEWAY_URL + path, timeout=20)
+                print(f"Status: {resp.status_code}")
+                print(f"Body: {resp.text[:2000]}")
+            except Exception as e:
+                print(f"Request failed: {e}")
 
