@@ -351,8 +351,8 @@ def parse_polymarket_us_outcomes(event: dict):
         if lo > -200 and hi < 300:
             label = f"{lo:.0f}-{hi:.0f}°F"
         elif hi < 300:
-            label = f"<={hi:.0f}°F"
+            label = f"≤{hi:.0f}°F"
         else:
-            label = f">={lo:.0f}°F"
+            label = f"≥{lo:.0f}°F"
         parsed.append((label, lo, hi, yes_price))
     return parsed
