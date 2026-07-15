@@ -64,8 +64,113 @@ def extract_row(block_text: str, row_label: str):
     return []
 
 
+# ---------------------------------------------------------------------------
+# Date-aware TXN/XND extraction.
+#
+# CONFIRMED via official NOAA documentation (vlab.noaa.gov/web/mdl/nbm-
+# textcard-v5.0) after a real bug surfaced on 2026-07-14: the row labeled
+# "TXN" does NOT contain only daily max values -- it interleaves MAX and
+# MIN into the same row:
+#   - Min is between 00Z-18Z, reported AT the 12Z column
+#   - Max is between 12Z(day)-06Z(next day), reported AT the 00Z column
+#     of the FOLLOWING day (i.e. a 00Z column's value belongs to the
+#     PRECEDING calendar date, not the date that column starts)
+#
+# extract_row()'s naive left-to-right token grab has no idea which
+# entries are max vs min, or which calendar date each belongs to -- it
+# just returns whatever numbers appear in reading order. For the 01Z
+# evening cycle, the first entry always happened to land on a max (00Z)
+# column, which is why it looked correct for months. For midday cycles
+# (07Z/13Z/19Z), the first entry lands on a min (12Z) column instead --
+# same code, silently wrong value, no error.
+#
+# This extracts the correct MAX value for a SPECIFIC calendar date by
+# using the bulletin's actual issue timestamp + each column's forecast-
+# hour offset to compute real valid datetimes, rather than assuming
+# index position maps to a date.
+# ---------------------------------------------------------------------------
+
+_ISSUE_TIME_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{2})(\d{2})\s+UTC")
+
+
+def _parse_bulletin_issue_time(block_text: str):
+    m = _ISSUE_TIME_RE.search(block_text)
+    if not m:
+        return None
+    month, day, year, hh, mm = (int(g) for g in m.groups())
+    return datetime(year, month, day, hh, mm, tzinfo=timezone.utc)
+
+
+def _parse_fixed_width_row(line: str, num_columns: int, label_width: int = 5, col_width: int = 3):
+    """NBM text products use a fixed-width layout: label field then
+    3-char columns. Unlike extract_row's naive split (which silently
+    skips blanks and loses position), this returns exactly num_columns
+    entries, using None for blank/unpopulated columns -- required to
+    correctly align TXN/XND values with their real FHR/UTC column."""
+    values = []
+    pos = label_width
+    for _ in range(num_columns):
+        chunk = line[pos:pos + col_width].strip() if pos < len(line) else ""
+        try:
+            values.append(int(chunk))
+        except ValueError:
+            values.append(None)
+        pos += col_width
+    return values
+
+
+def extract_max_for_date(block_text: str, target_date):
+    """Returns (txn_max, xnd) for the specific calendar date, or
+    (None, None) if that date's max isn't present in this bulletin.
+    This is the correct replacement for the old 'just take index [0]'
+    approach, which broke silently on any non-01Z cycle."""
+    issue_time = _parse_bulletin_issue_time(block_text)
+    if issue_time is None:
+        return None, None
+
+    fhr_line = txn_line = xnd_line = None
+    for line in block_text.splitlines():
+        stripped = line.strip()
+        if fhr_line is None and stripped.startswith("FHR"):
+            fhr_line = line
+        elif txn_line is None and stripped.startswith("TXN"):
+            txn_line = line
+        elif xnd_line is None and stripped.startswith("XND"):
+            xnd_line = line
+    if fhr_line is None or txn_line is None:
+        return None, None
+
+    # FHR has no blanks, so the naive extractor gives a reliable column count.
+    fhr_values = extract_row(block_text, "FHR")
+    num_cols = len(fhr_values)
+    if num_cols == 0:
+        return None, None
+
+    txn_by_col = _parse_fixed_width_row(txn_line, num_cols)
+    xnd_by_col = _parse_fixed_width_row(xnd_line, num_cols) if xnd_line else [None] * num_cols
+
+    for i, fhr in enumerate(fhr_values):
+        val = txn_by_col[i] if i < len(txn_by_col) else None
+        if val is None:
+            continue
+        valid_dt = issue_time + timedelta(hours=fhr)
+        if valid_dt.hour == 0:
+            # MAX entry -- belongs to the PRECEDING calendar date, not
+            # the date this 00Z column nominally starts.
+            max_date = (valid_dt - timedelta(days=1)).date()
+            if max_date == target_date:
+                xnd_val = xnd_by_col[i] if i < len(xnd_by_col) else None
+                return val, xnd_val
+        # hour == 12 entries are MIN readings -- not what we want here.
+    return None, None
+
+
 def fetch_all_nbm(cycle: str) -> dict:
-    """Returns {station: {"TXN": [...], "XND": [...]}} for ALL_STATIONS."""
+    """Returns {station: {"TXN": [...], "XND": [...], "block": raw_text}}
+    for ALL_STATIONS. TXN/XND arrays are kept for backward compatibility
+    but should NOT be indexed directly (see extract_max_for_date's
+    docstring for why) -- use "block" with extract_max_for_date(block,
+    target_date) instead to get the correct value for a specific date."""
     raw = fetch_nbm_raw(cycle)
     blocks = split_by_station(raw, ALL_STATIONS)
     result = {}
@@ -75,9 +180,10 @@ def fetch_all_nbm(cycle: str) -> dict:
             result[station] = {
                 "TXN": extract_row(block, "TXN"),
                 "XND": extract_row(block, "XND"),
+                "block": block,
             }
         else:
-            result[station] = {"TXN": [], "XND": []}
+            result[station] = {"TXN": [], "XND": [], "block": None}
     return result
 
 
