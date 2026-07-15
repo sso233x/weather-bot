@@ -18,6 +18,7 @@ from data_sources import (
     fetch_all_nbm, fetch_all_metar, fetch_gridpoint_max_temp_f,
     build_event_slug, fetch_market_by_slug, parse_outcomes, find_bucket_for_temp,
     build_polymarket_us_slug, fetch_polymarket_us_event, parse_polymarket_us_outcomes,
+    extract_max_for_date,
 )
 from history import load_history, save_history, record_run, recent_values
 from scoring import CitySetup, score_setup
@@ -65,15 +66,17 @@ def main():
     # target date a full day too far ahead on that run specifically.
     ET = ZoneInfo("America/New_York")
     today_et = datetime.now(ET).date()
-    # ALWAYS tomorrow, regardless of cycle. Confirmed via a column-level
-    # diagnostic on 2026-07-14: at 13Z, the TXN row's first value sits
-    # under the "JUL 15" (tomorrow) day-span, not "JUL 14" (today) --
-    # NBM doesn't repost a distinct TXN entry for a day that's already
-    # mostly elapsed by the time a midday cycle runs. Previously this
-    # branched to today_et for non-01 cycles, which silently paired
-    # tomorrow's TXN value with today's date and produced physically
-    # impossible output (forecast high below the already-observed
-    # current temp).
+    # ALWAYS tomorrow, regardless of cycle. The real root cause of the
+    # 2026-07-14 bug (confirmed against official NOAA NBM documentation)
+    # was that the "TXN" row interleaves MAX values (at 00Z columns) and
+    # MIN values (at 12Z columns) into one row -- extract_row()'s naive
+    # left-to-right grab had no idea which was which. For 01Z runs the
+    # first entry always happened to be a max column; for midday cycles
+    # it wasn't, silently returning an overnight low mislabeled as the
+    # day's forecast high. Fixed by extract_max_for_date(), which uses
+    # the bulletin's real issue time + forecast-hour offsets to find the
+    # correct max entry for a specific calendar date instead of guessing
+    # by index position.
     target_date = today_et + timedelta(days=1)
 
     REC_EMOJI = {"GO": "🟢", "WATCH": "🟡", "SKIP": "🔴"}
@@ -82,9 +85,11 @@ def main():
 
     for code, city in CITIES.items():
         station = city["station"]
-        nbm = nbm_data.get(station, {"TXN": [], "XND": []})
-        latest_txn = nbm["TXN"][0] if nbm["TXN"] else None
-        latest_xnd = nbm["XND"][0] if nbm["XND"] else None
+        nbm = nbm_data.get(station, {"TXN": [], "XND": [], "block": None})
+        if nbm.get("block"):
+            latest_txn, latest_xnd = extract_max_for_date(nbm["block"], target_date)
+        else:
+            latest_txn, latest_xnd = None, None
 
         # persist today's TXN so tomorrow's run has trend history
         if latest_txn is not None:
