@@ -28,7 +28,10 @@ def fetch_nbm_raw(cycle: str) -> str:
     ymd = now.strftime("%Y%m%d")
     url = f"{NBM_TEXT_BASE}/blend.{ymd}/{cycle}/text/blend_nbstx.t{cycle}z"
     resp = requests.get(url, timeout=60)
-    if resp.status_code == 404:
+    # NOAA's NOMADS server returns 403 (not 404) for files that don't
+    # exist yet, e.g. requesting a cycle before it's been published --
+    # confirmed 2026-07-14. Treat both the same for fallback purposes.
+    if resp.status_code in (403, 404):
         ymd_prev = (now - timedelta(days=1)).strftime("%Y%m%d")
         url = f"{NBM_TEXT_BASE}/blend.{ymd_prev}/{cycle}/text/blend_nbstx.t{cycle}z"
         resp = requests.get(url, timeout=60)
