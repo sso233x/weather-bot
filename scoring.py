@@ -14,6 +14,7 @@ from typing import Optional
 from config import XND_SKIP_THRESHOLD, MIN_CONFIDENCE_TO_ACT
 
 WEIGHTS_FILE = os.path.join(os.path.dirname(__file__), "weights.json")
+LEARNED_FILE = os.path.join(os.path.dirname(__file__), "learned_adjustments.json")
 
 DEFAULT_WEIGHTS = {
     "bucket_convergence": 1.4,
@@ -31,6 +32,33 @@ def load_weights() -> dict:
         with open(WEIGHTS_FILE) as f:
             return json.load(f)
     return DEFAULT_WEIGHTS
+
+
+def load_learned_adjustments() -> dict:
+    """Reads calibrate.py's learned_adjustments.json, written only when a
+    given value has crossed a real sample-size threshold (see
+    calibrate.py). Missing file or missing keys just mean 'not enough
+    data yet' -- callers should fall back to static defaults, not treat
+    an empty result as an error. This is intentionally the ONLY place
+    learned data enters scoring -- everything else in this file stays a
+    fixed, auditable rule until calibrate.py has actually earned the
+    right to override it."""
+    if not os.path.exists(LEARNED_FILE):
+        return {}
+    try:
+        with open(LEARNED_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def get_txn_bias(city_code: str) -> float:
+    """Returns the learned TXN bias correction for a city (subtract this
+    from raw TXN before using it for bucket lookup/scoring), or 0.0 if
+    not enough data yet. Positive bias = model has been running hot for
+    this city historically."""
+    learned = load_learned_adjustments()
+    return learned.get("city_txn_bias", {}).get(city_code, 0.0)
 
 
 @dataclass
@@ -59,9 +87,14 @@ class ScoreResult:
 
 def score_setup(setup: CitySetup) -> ScoreResult:
     weights = load_weights()
+    learned = load_learned_adjustments()
+    min_confidence = learned.get("min_confidence_to_act", MIN_CONFIDENCE_TO_ACT)
     notes = []
     raw = 0.0
     hard_skip = False
+
+    if "min_confidence_to_act" in learned:
+        notes.append(f"using CALIBRATED confidence threshold {min_confidence:.2f} (not the static default)")
 
     # -- TXN position: latest TXN inside/above bucket low --
     if setup.txn_history and setup.market_bucket_low is not None:
@@ -154,9 +187,9 @@ def score_setup(setup: CitySetup) -> ScoreResult:
 
     if hard_skip:
         rec = "SKIP"
-    elif confidence >= MIN_CONFIDENCE_TO_ACT:
+    elif confidence >= min_confidence:
         rec = "GO"
-    elif confidence >= MIN_CONFIDENCE_TO_ACT - 0.15:
+    elif confidence >= min_confidence - 0.15:
         rec = "WATCH"
     else:
         rec = "SKIP"
