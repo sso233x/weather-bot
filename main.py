@@ -87,14 +87,23 @@ def main():
                 break
 
     if issue_time_et is not None:
-        target_date = issue_time_et.date() + timedelta(days=1)
+        if NBM_CYCLE == "01":
+            # Evening run: predicts the day that's about to start.
+            target_date = issue_time_et.date() + timedelta(days=1)
+        else:
+            # Morning/midday run: happens ON the day it should be
+            # evaluating (the same day last night's run predicted), not
+            # the day after. Using the bulletin's own issue date (not
+            # wall-clock) keeps this robust to scheduling delays the
+            # same way the evening case is.
+            target_date = issue_time_et.date()
     else:
         # Fallback if no bulletin could be parsed at all (e.g. total NBM
         # fetch failure) -- wall-clock is a reasonable last resort here
         # since there's no bulletin data to anchor to anyway.
         print("WARNING: could not parse any bulletin issue time -- "
               "falling back to wall-clock date (less robust to scheduling delays).")
-        target_date = today_et + timedelta(days=1)
+        target_date = today_et + timedelta(days=1) if NBM_CYCLE == "01" else today_et
 
     REC_EMOJI = {"GO": "🟢", "WATCH": "🟡", "SKIP": "🔴"}
 
