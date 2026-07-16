@@ -96,6 +96,13 @@ def extract_row(block_text: str, row_label: str):
 _ISSUE_TIME_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{2})(\d{2})\s+UTC")
 
 
+def parse_bulletin_issue_time(block_text: str):
+    """Public wrapper -- used by main.py to derive target_date from the
+    bulletin's own fixed issue timestamp rather than wall-clock execution
+    time, so a delayed GitHub Actions run can't shift the predicted date."""
+    return _parse_bulletin_issue_time(block_text)
+
+
 def _parse_bulletin_issue_time(block_text: str):
     m = _ISSUE_TIME_RE.search(block_text)
     if not m:
