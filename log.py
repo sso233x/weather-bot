@@ -18,6 +18,25 @@ FIELDNAMES = [
 ]
 
 
+def get_existing_prediction(city_code: str, target_date_str: str):
+    """Returns the existing UNRESOLVED row dict for (city, target_date) if
+    one exists, else None. Used by morning runs to reuse the previous
+    night's TXN/XND instead of re-deriving them -- matches Merritt's
+    original manual process (TXN taken once at night, only bucket/price
+    re-checked in the morning), and NBM doesn't post a distinct max for
+    an already-mostly-elapsed day anyway (see extract_max_for_date)."""
+    if not os.path.exists(LOG_FILE):
+        return None
+    with open(LOG_FILE, newline="") as f:
+        rows = list(csv.DictReader(f))
+    for row in rows:
+        if (row.get("city") == city_code
+                and row.get("target_date") == target_date_str
+                and row.get("outcome_win") in ("", None)):
+            return row
+    return None
+
+
 def log_prediction(city_code, station, target_date, txn, xnd,
                     bucket_label, market_price, result,
                     app_bucket_label=None, app_market_price=None) -> None:
