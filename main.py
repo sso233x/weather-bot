@@ -18,7 +18,7 @@ from data_sources import (
     fetch_all_nbm, fetch_all_metar, fetch_gridpoint_max_temp_f,
     build_event_slug, fetch_market_by_slug, parse_outcomes, find_bucket_for_temp,
     build_polymarket_us_slug, fetch_polymarket_us_event, parse_polymarket_us_outcomes,
-    extract_max_for_date,
+    extract_max_for_date, parse_bulletin_issue_time,
 )
 from history import load_history, save_history, record_run, recent_values
 from scoring import CitySetup, score_setup, get_txn_bias
@@ -66,18 +66,35 @@ def main():
     # target date a full day too far ahead on that run specifically.
     ET = ZoneInfo("America/New_York")
     today_et = datetime.now(ET).date()
-    # ALWAYS tomorrow, regardless of cycle. The real root cause of the
-    # 2026-07-14 bug (confirmed against official NOAA NBM documentation)
-    # was that the "TXN" row interleaves MAX values (at 00Z columns) and
-    # MIN values (at 12Z columns) into one row -- extract_row()'s naive
-    # left-to-right grab had no idea which was which. For 01Z runs the
-    # first entry always happened to be a max column; for midday cycles
-    # it wasn't, silently returning an overnight low mislabeled as the
-    # day's forecast high. Fixed by extract_max_for_date(), which uses
-    # the bulletin's real issue time + forecast-hour offsets to find the
-    # correct max entry for a specific calendar date instead of guessing
-    # by index position.
-    target_date = today_et + timedelta(days=1)
+
+    # Derive target_date from the NBM bulletin's OWN issue timestamp
+    # (fixed, embedded in the data) rather than wall-clock execution time.
+    # Confirmed necessary on 2026-07-15: the scheduled evening run was
+    # delayed by GitHub Actions from ~9:11pm ET to 12:22am ET -- crossing
+    # midnight meant wall-clock "today + 1" silently became the WRONG
+    # date (predicted the 17th instead of the 16th) purely because of
+    # when the job happened to execute, not because of anything about
+    # the actual forecast data. The bulletin's issue time doesn't move
+    # just because GitHub was slow to run the job, so anchoring to it
+    # instead makes target_date immune to scheduling delays.
+    issue_time_et = None
+    for station_data in nbm_data.values():
+        block = station_data.get("block")
+        if block:
+            issue_time_utc = parse_bulletin_issue_time(block)
+            if issue_time_utc:
+                issue_time_et = issue_time_utc.astimezone(ET)
+                break
+
+    if issue_time_et is not None:
+        target_date = issue_time_et.date() + timedelta(days=1)
+    else:
+        # Fallback if no bulletin could be parsed at all (e.g. total NBM
+        # fetch failure) -- wall-clock is a reasonable last resort here
+        # since there's no bulletin data to anchor to anyway.
+        print("WARNING: could not parse any bulletin issue time -- "
+              "falling back to wall-clock date (less robust to scheduling delays).")
+        target_date = today_et + timedelta(days=1)
 
     REC_EMOJI = {"GO": "🟢", "WATCH": "🟡", "SKIP": "🔴"}
 
