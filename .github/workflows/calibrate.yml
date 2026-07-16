@@ -2,10 +2,14 @@ name: Calibrate
 
 on:
   schedule:
-    # 12:45 UTC -- runs 25 min after check-outcomes.yml (12:20 UTC), which
-    # itself now runs after 8am ET settlement instead of before it.
-    - cron: "45 12 * * *"
+    # 12:51 UTC (not :45) -- same congestion-avoidance reasoning as
+    # check-outcomes.yml. Still comfortably after that workflow's ~12:23
+    # run time.
+    - cron: "51 12 * * *"
   workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
   calibrate:
@@ -33,3 +37,13 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python send_calibration.py
+
+      - name: Commit learned adjustments
+        run: |
+          git config user.name "weather-bot"
+          git config user.email "actions@github.com"
+          git add learned_adjustments.json
+          git diff --staged --quiet && exit 0
+          git commit -m "Update learned adjustments [skip ci]"
+          git pull --rebase origin main
+          git push
