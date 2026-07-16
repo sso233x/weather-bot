@@ -8,7 +8,9 @@ Usage: python3 calibrate.py
 """
 
 import csv
+import json
 import os
+from datetime import datetime, timezone
 
 from log import LOG_FILE
 
@@ -123,6 +125,20 @@ def summarize(rows):
             print(f"  {city:5s}: website={site_wr:.1%}  app={app_wr:.1%}  (n={len(pairs)}){flag}")
     print("  Positive = model runs HOT for that city. Negative = runs COLD.")
     print("  Only uses rows where actual_high has been backfilled by check_outcomes.py.")
+    by_city_bias = compute_city_bias(rows)
+    if not by_city_bias:
+        print("  No actual_high data yet -- run check_outcomes.py again to backfill it,")
+        print("  then re-run this script.")
+    else:
+        for city, (avg, n) in sorted(by_city_bias.items()):
+            flag = "" if n >= MIN_SAMPLE else f"  <-- only {n}, not reliable yet"
+            print(f"  {city:5s}: {avg:+.1f}°F avg bias (n={n}){flag}")
+
+    return by_city_bias
+
+
+def compute_city_bias(rows) -> dict:
+    """Returns {city: (avg_bias, n)} for cities with actual_high data."""
     by_city_bias = {}
     for r in rows:
         actual = r.get("actual_high")
@@ -133,20 +149,13 @@ def summarize(rows):
         except (ValueError, TypeError):
             continue
         by_city_bias.setdefault(r["city"], []).append(diff)
-    if not by_city_bias:
-        print("  No actual_high data yet -- run check_outcomes.py again to backfill it,")
-        print("  then re-run this script.")
-    else:
-        for city, diffs in sorted(by_city_bias.items()):
-            avg = sum(diffs) / len(diffs)
-            flag = "" if len(diffs) >= MIN_SAMPLE else f"  <-- only {len(diffs)}, not reliable yet"
-            print(f"  {city:5s}: {avg:+.1f}°F avg bias (n={len(diffs)}){flag}")
+    return {city: (sum(diffs) / len(diffs), len(diffs)) for city, diffs in by_city_bias.items()}
 
 
 def suggest_threshold(rows, target_win_rate=0.70):
     if len(rows) < 15:
         print(f"\nNeed 15+ resolved samples before a threshold suggestion means anything (have {len(rows)}).")
-        return
+        return None
     scored = sorted(rows, key=lambda r: -float(r["confidence"]))
     best_cutoff = None
     for i in range(len(scored)):
@@ -158,12 +167,52 @@ def suggest_threshold(rows, target_win_rate=0.70):
         print(f"\nSuggested MIN_CONFIDENCE_TO_ACT for >= {target_win_rate:.0%} "
               f"win rate: {best_cutoff:.2f} (based on {len(rows)} samples -- "
               f"treat cautiously until 50+)")
+        return best_cutoff
     else:
         print(f"\nNo cutoff in your history hits {target_win_rate:.0%} yet -- "
               "more samples needed, or the signals need reweighting.")
+        return None
+
+
+def write_learned_adjustments(rows, city_bias: dict, suggested_threshold):
+    """Writes learned_adjustments.json for scoring.py to read. Every
+    value is gated by MIN_SAMPLE (15) -- calibrate.py only ever writes a
+    value once it's actually earned real confidence, never from a small
+    sample. Missing keys just mean 'not enough data yet', and
+    scoring.py's load_learned_adjustments() already treats that as
+    'fall back to the static default', so it's always safe to omit."""
+    MIN_SAMPLE = 15
+    adjustments = {"generated_at": datetime.now(timezone.utc).isoformat()}
+
+    if suggested_threshold is not None and len(rows) >= 50:
+        # Extra-conservative here: the confidence threshold directly
+        # controls GO/WATCH/SKIP for every city, so this gets a higher
+        # bar (50) than the per-signal MIN_SAMPLE (15) used elsewhere.
+        adjustments["min_confidence_to_act"] = round(suggested_threshold, 3)
+
+    city_bias_out = {
+        city: round(avg, 2)
+        for city, (avg, n) in city_bias.items()
+        if n >= MIN_SAMPLE
+    }
+    if city_bias_out:
+        adjustments["city_txn_bias"] = city_bias_out
+
+    learned_file = os.path.join(os.path.dirname(__file__), "learned_adjustments.json")
+    with open(learned_file, "w") as f:
+        json.dump(adjustments, f, indent=2)
+
+    learned_keys = [k for k in adjustments if k != "generated_at"]
+    if learned_keys:
+        print(f"\nWrote learned_adjustments.json with: {learned_keys}")
+    else:
+        print(f"\nNo values crossed the sample-size bar yet -- "
+              f"learned_adjustments.json written but empty (scoring.py "
+              f"will use static defaults for everything).")
 
 
 if __name__ == "__main__":
     rows = load_resolved_rows()
-    summarize(rows)
-    suggest_threshold(rows, target_win_rate=0.70)
+    city_bias = summarize(rows) or {}
+    suggested_threshold = suggest_threshold(rows, target_win_rate=0.70)
+    write_learned_adjustments(rows, city_bias, suggested_threshold)
