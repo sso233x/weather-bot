@@ -21,8 +21,8 @@ from data_sources import (
     extract_max_for_date,
 )
 from history import load_history, save_history, record_run, recent_values
-from scoring import CitySetup, score_setup
-from log import log_prediction
+from scoring import CitySetup, score_setup, get_txn_bias
+from log import log_prediction, get_existing_prediction
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -86,15 +86,56 @@ def main():
     for code, city in CITIES.items():
         station = city["station"]
         nbm = nbm_data.get(station, {"TXN": [], "XND": [], "block": None})
-        if nbm.get("block"):
-            latest_txn, latest_xnd = extract_max_for_date(nbm["block"], target_date)
+
+        reused_from_last_night = False
+        if NBM_CYCLE == "01":
+            # Evening run: this IS the source of truth for TXN/XND.
+            if nbm.get("block"):
+                latest_txn, latest_xnd = extract_max_for_date(nbm["block"], target_date)
+            else:
+                latest_txn, latest_xnd = None, None
         else:
-            latest_txn, latest_xnd = None, None
+            # Morning/midday run: reuse last night's TXN instead of
+            # re-deriving it. Matches the original manual process (TXN
+            # taken once at night, only bucket/price re-checked in the
+            # morning) -- and NBM doesn't post a distinct max for an
+            # already-mostly-elapsed day anyway, so re-fetching here
+            # would either fail or silently return nothing useful.
+            existing = get_existing_prediction(code, str(target_date))
+            if existing and existing.get("txn"):
+                latest_txn = float(existing["txn"])
+                latest_xnd = int(existing["xnd"]) if existing.get("xnd") else None
+                reused_from_last_night = True
+            elif nbm.get("block"):
+                # No prior night-before row found (e.g. first-ever run,
+                # or last night's run failed) -- fall back to a fresh
+                # fetch so this city isn't just silently skipped.
+                latest_txn, latest_xnd = extract_max_for_date(nbm["block"], target_date)
+            else:
+                latest_txn, latest_xnd = None, None
+
+        # Raw TXN gets logged unmodified -- bias correction below is only
+        # for bucket lookup/scoring, never for what's persisted, or the
+        # bias calculation itself would drift from correcting its own output.
+        raw_txn = latest_txn
+        bias = get_txn_bias(code) if latest_txn is not None else 0.0
+        corrected_txn = latest_txn - bias if latest_txn is not None else None
+        if bias and latest_txn is not None:
+            print(f"{code}: applying learned bias correction {bias:+.1f}F "
+                  f"(raw TXN {raw_txn} -> corrected {corrected_txn:.1f})")
 
         # persist today's TXN so tomorrow's run has trend history
-        if latest_txn is not None:
-            record_run(history, station, latest_txn)
+        if raw_txn is not None and not reused_from_last_night:
+            record_run(history, station, raw_txn)
         txn_hist = recent_values(history, station, n=3)
+        # Scoring's internal "is TXN inside bucket" checks use
+        # txn_history[-1] -- that needs to match corrected_txn (what the
+        # bucket was actually chosen against below), not the raw value,
+        # or scoring would contradict its own bucket choice whenever a
+        # bias correction is active. History persistence above still
+        # uses raw_txn unmodified -- only this in-memory copy changes.
+        if txn_hist and corrected_txn is not None:
+            txn_hist = txn_hist[:-1] + [corrected_txn]
 
         gridpoint = fetch_gridpoint_max_temp_f(city["lat"], city["lon"])
 
@@ -103,8 +144,8 @@ def main():
         outcomes = parse_outcomes(event) if event else []
 
         bucket_label = bucket_low = bucket_high = market_price = None
-        if outcomes and latest_txn is not None:
-            found = find_bucket_for_temp(outcomes, latest_txn)
+        if outcomes and corrected_txn is not None:
+            found = find_bucket_for_temp(outcomes, corrected_txn)
             if found:
                 bucket_label, bucket_low, bucket_high, market_price = found
 
@@ -117,8 +158,8 @@ def main():
             app_slug = build_polymarket_us_slug(us_station_slug, target_date)
             app_event = fetch_polymarket_us_event(app_slug)
             app_outcomes = parse_polymarket_us_outcomes(app_event) if app_event else []
-            if app_outcomes and latest_txn is not None:
-                app_found = find_bucket_for_temp(app_outcomes, latest_txn)
+            if app_outcomes and corrected_txn is not None:
+                app_found = find_bucket_for_temp(app_outcomes, corrected_txn)
                 if app_found:
                     app_bucket_label, _, _, app_market_price = app_found
 
@@ -156,12 +197,19 @@ def main():
         if app_bucket_label:
             lines.append(f"   app: {html.escape(app_bucket_label)} @ {app_market_price:.2f}")
 
+        if bias:
+            lines.append(f"   🔄 bias-corrected TXN by {bias:+.1f}°F (learned from history)")
+
+        if reused_from_last_night:
+            lines.append(f"   ↻ TXN reused from last night's run (not re-derived)")
+
         # Only surface the notes that actually change the picture -- skip
         # routine confirmations to keep this scannable on a phone.
         highlights = []
         for n in result.notes:
             if any(kw in n for kw in ("HARD SKIP", "contradict", "outside", "diverge",
-                                       "can't", "unstable", "not found", "didn't match")):
+                                       "can't", "unstable", "not found", "didn't match",
+                                       "CALIBRATED")):
                 highlights.append(n)
         for h in highlights:
             lines.append(f"   ⚠️ {html.escape(h)}")
