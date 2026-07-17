@@ -8,7 +8,9 @@ resolved. Run this daily, after markets have had time to resolve.
 """
 
 import csv
+import html
 import os
+import re
 import sys
 from datetime import date, datetime
 
@@ -23,6 +25,15 @@ from log import LOG_FILE, FIELDNAMES
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+# Display-only labels for app-side outcome lines, so they're visually
+# distinct from the website line for the same city instead of relying
+# solely on the "(app)" suffix. Matches the real station each platform
+# actually uses (confirmed via the Polymarket US gateway API).
+APP_DISPLAY_CODE = {
+    "ORD": "MDW",
+    "LGA": "NYC",
+}
 
 
 def send_telegram(message: str) -> None:
@@ -40,7 +51,6 @@ def send_telegram(message: str) -> None:
 def bucket_matches(label_a: str, label_b: str) -> bool:
     """Compares two bucket labels by numeric range rather than exact text,
     since phrasing can vary slightly between fetches."""
-    import re
     ra = re.search(r"(\d+)\s*-\s*(\d+)", label_a or "")
     rb = re.search(r"(\d+)\s*-\s*(\d+)", label_b or "")
     if not ra or not rb:
@@ -48,53 +58,55 @@ def bucket_matches(label_a: str, label_b: str) -> bool:
     return ra.groups() == rb.groups()
 
 
+def _resolve(outcomes, predicted_label):
+    """Shared resolution logic for both website and app. Returns
+    (outcome, winning_label):
+      outcome: True/False/None (win/loss/still unresolved)
+      winning_label: the label of whichever bucket actually won (yes
+        price >= 0.9), if one has settled -- populated even on a LOSS,
+        so you can see what actually happened instead of just "no"."""
+    winning_label = None
+    predicted_result = None
+    for label, lo, hi, yes_price in outcomes:
+        if yes_price >= 0.9:
+            winning_label = label
+        if bucket_matches(label, predicted_label):
+            if yes_price >= 0.9:
+                predicted_result = True
+            elif yes_price <= 0.1:
+                predicted_result = False
+            # else: ambiguous/not fully settled -- leave as None
+    return predicted_result, winning_label
+
+
 def check_one(city_code: str, target_date_str: str, predicted_label: str):
-    """Returns True/False/None (win/loss/still unresolved)."""
+    """Returns (outcome, winning_label). See _resolve()."""
     city = CITIES.get(city_code)
     if not city or not predicted_label:
-        return None
+        return None, None
     target_date = date.fromisoformat(target_date_str)
     slug = build_event_slug(city["slug"], target_date)
     event = fetch_market_by_slug(slug)
     if not event or not event.get("closed", False):
-        return None  # not resolved yet (or event missing)
-
+        return None, None  # not resolved yet (or event missing)
     outcomes = parse_outcomes(event)
-    for label, lo, hi, yes_price in outcomes:
-        if bucket_matches(label, predicted_label):
-            if yes_price >= 0.9:
-                return True
-            if yes_price <= 0.1:
-                return False
-            return None  # ambiguous / not fully settled
-    return None  # predicted bucket not found in resolved event
+    return _resolve(outcomes, predicted_label)
 
 
 def check_one_app(city_code: str, target_date_str: str, predicted_label: str):
     """App-side (Polymarket US) equivalent of check_one(). Returns
-    True/False/None. Uses the same >=0.9 win / <=0.1 loss price-threshold
-    convention as the website side -- unconfirmed against a real settled
-    app market yet (none had closed as of when this was written), so
-    treat this as the reasonable default rather than a verified fact
-    until we've seen it work on an actual resolved market."""
+    (outcome, winning_label). Uses the same >=0.9 win / <=0.1 loss
+    price-threshold convention as the website side."""
     us_station_slug = US_STATION_SLUG.get(city_code)
     if not us_station_slug or not predicted_label:
-        return None
+        return None, None
     target_date = date.fromisoformat(target_date_str)
     slug = build_polymarket_us_slug(us_station_slug, target_date)
     event = fetch_polymarket_us_event(slug)
     if not event or not event.get("closed", False):
-        return None  # not resolved yet (or event missing)
-
+        return None, None  # not resolved yet (or event missing)
     outcomes = parse_polymarket_us_outcomes(event)
-    for label, lo, hi, yes_price in outcomes:
-        if bucket_matches(label, predicted_label):
-            if yes_price >= 0.9:
-                return True
-            if yes_price <= 0.1:
-                return False
-            return None  # ambiguous / not fully settled
-    return None  # predicted bucket not found in resolved event
+    return _resolve(outcomes, predicted_label)
 
 
 def main():
@@ -105,13 +117,15 @@ def main():
     with open(LOG_FILE, newline="") as f:
         rows = list(csv.DictReader(f))
 
-    # Older rows logged before actual_high/app fields were tracked won't
-    # have those keys at all -- normalize before doing anything else.
+    # Older rows logged before these fields were tracked won't have the
+    # keys at all -- normalize before doing anything else.
     for row in rows:
         row.setdefault("actual_high", "")
         row.setdefault("app_bucket_label", "")
         row.setdefault("app_market_price", "")
         row.setdefault("app_outcome_win", "")
+        row.setdefault("actual_winning_bucket", "")
+        row.setdefault("actual_winning_bucket_app", "")
 
     today = date.today()
     resolved_summary = []
@@ -129,24 +143,37 @@ def main():
         already_resolved = row["outcome_win"] not in ("", None)
 
         if not already_resolved:
-            outcome = check_one(row["city"], row["target_date"], row["market_bucket_label"])
+            outcome, winning_label = check_one(row["city"], row["target_date"], row["market_bucket_label"])
             if outcome is not None:
                 row["outcome_win"] = int(outcome)
+                row["actual_winning_bucket"] = winning_label or ""
+                miss_note = "" if outcome else f" (actual winner: {html.escape(winning_label or 'unknown')})"
                 resolved_summary.append(
                     f"{'✅' if outcome else '❌'} {row['city']} {row['target_date']}: "
-                    f"predicted {row['market_bucket_label']} ({row['recommendation']}, "
-                    f"{float(row['confidence']):.0%}) -> {'WIN' if outcome else 'LOSS'}"
+                    f"predicted {html.escape(row['market_bucket_label'])} ({row['recommendation']}, "
+                    f"{float(row['confidence']):.0%}) -> {'WIN' if outcome else 'LOSS'}{miss_note}"
                 )
 
         app_already_resolved = row.get("app_outcome_win") not in ("", None)
-        if not app_already_resolved and row.get("app_bucket_label"):
-            app_outcome = check_one_app(row["city"], row["target_date"], row["app_bucket_label"])
-            if app_outcome is not None:
-                row["app_outcome_win"] = int(app_outcome)
-                resolved_summary.append(
-                    f"{'✅' if app_outcome else '❌'} {row['city']} {row['target_date']} (app): "
-                    f"predicted {row['app_bucket_label']} -> {'WIN' if app_outcome else 'LOSS'}"
-                )
+        if not app_already_resolved:
+            if row.get("app_bucket_label"):
+                app_outcome, app_winning_label = check_one_app(row["city"], row["target_date"], row["app_bucket_label"])
+                if app_outcome is not None:
+                    row["app_outcome_win"] = int(app_outcome)
+                    row["actual_winning_bucket_app"] = app_winning_label or ""
+                    app_display = APP_DISPLAY_CODE.get(row["city"], row["city"])
+                    miss_note = "" if app_outcome else f" (actual winner: {html.escape(app_winning_label or 'unknown')})"
+                    resolved_summary.append(
+                        f"{'✅' if app_outcome else '❌'} {app_display} {row['target_date']} (app): "
+                        f"predicted {html.escape(row['app_bucket_label'])} -> {'WIN' if app_outcome else 'LOSS'}{miss_note}"
+                    )
+            else:
+                # No app bucket was ever captured for this prediction --
+                # nothing to resolve. Printed (not sent to Telegram) so
+                # this is diagnosable in the Actions log instead of just
+                # silently missing, the way Chicago's did on 2026-07-16.
+                print(f"No app_bucket_label for {row['city']} {row['target_date']} -- "
+                      f"app side was never populated for this row, so there's nothing to check.")
 
         # Backfill actual_high for any row missing it -- newly resolved
         # rows and previously-resolved rows logged before this field existed.
