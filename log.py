@@ -14,6 +14,7 @@ FIELDNAMES = [
     "market_bucket_label", "market_price", "confidence", "raw_score",
     "recommendation", "outcome_win", "actual_high",
     "app_bucket_label", "app_market_price", "app_outcome_win",
+    "actual_winning_bucket", "actual_winning_bucket_app",
     "notes",
 ]
 
@@ -76,6 +77,8 @@ def log_prediction(city_code, station, target_date, txn, xnd,
         "app_bucket_label": app_bucket_label or "",
         "app_market_price": app_market_price if app_market_price is not None else "",
         "app_outcome_win": "",  # filled in later by check_outcomes.py
+        "actual_winning_bucket": "",  # filled in later by check_outcomes.py
+        "actual_winning_bucket_app": "",  # filled in later by check_outcomes.py
         "notes": " | ".join(result.notes),
     }
 
