@@ -169,13 +169,18 @@ def main():
                     )
             else:
                 # No app bucket was ever captured for this prediction --
-                # nothing to resolve. Only worth printing once website
-                # has ALSO resolved (meaning we've truly exhausted what
-                # this row can tell us) -- otherwise this would repeat
-                # every single day forever for old pre-app-tracking rows
-                # (anything before ~2026-07-14) that can never populate.
-                if row["outcome_win"] not in ("", None):
-                    pass  # fully closed out, nothing left to log
+                # nothing to resolve. Only worth printing if this row
+                # could still plausibly resolve later -- i.e. website has
+                # a real bucket to check and just hasn't closed yet.
+                # Rows with NO bucket on either side (market_bucket_label
+                # also blank -- a WATCH row where NBM/market data never
+                # lined up that day) can never resolve on the website
+                # side either, so waiting for "website resolved" would
+                # spam forever. Same for rows already closed out.
+                never_resolvable = not row.get("market_bucket_label")
+                already_closed_out = row["outcome_win"] not in ("", None)
+                if never_resolvable or already_closed_out:
+                    pass  # nothing left to ever log for this row
                 else:
                     print(f"No app_bucket_label for {row['city']} {row['target_date']} -- "
                           f"app side was never populated for this row, so there's nothing to check.")
