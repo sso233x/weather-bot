@@ -169,11 +169,16 @@ def main():
                     )
             else:
                 # No app bucket was ever captured for this prediction --
-                # nothing to resolve. Printed (not sent to Telegram) so
-                # this is diagnosable in the Actions log instead of just
-                # silently missing, the way Chicago's did on 2026-07-16.
-                print(f"No app_bucket_label for {row['city']} {row['target_date']} -- "
-                      f"app side was never populated for this row, so there's nothing to check.")
+                # nothing to resolve. Only worth printing once website
+                # has ALSO resolved (meaning we've truly exhausted what
+                # this row can tell us) -- otherwise this would repeat
+                # every single day forever for old pre-app-tracking rows
+                # (anything before ~2026-07-14) that can never populate.
+                if row["outcome_win"] not in ("", None):
+                    pass  # fully closed out, nothing left to log
+                else:
+                    print(f"No app_bucket_label for {row['city']} {row['target_date']} -- "
+                          f"app side was never populated for this row, so there's nothing to check.")
 
         # Backfill actual_high for any row missing it -- newly resolved
         # rows and previously-resolved rows logged before this field existed.
