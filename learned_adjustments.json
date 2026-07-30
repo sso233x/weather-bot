@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-07-29T14:59:47.091074+00:00",
+  "generated_at": "2026-07-30T14:56:10.300881+00:00",
   "min_confidence_to_act": 0.999,
   "min_confidence_to_act_source": "app",
   "city_txn_bias": {
-    "LAX": -1.33,
-    "SFO": -0.67,
+    "LAX": -1.26,
+    "SFO": -0.47,
     "MIA": -0.11,
-    "ORD": -0.44,
-    "LGA": 0.11
+    "ORD": -0.37,
+    "LGA": 0.05
   }
 }
