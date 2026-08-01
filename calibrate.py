@@ -23,6 +23,7 @@ from log import LOG_FILE
 
 MIN_SAMPLE = 15  # below this, flag instead of trusting the number
 CONFIDENCE_THRESHOLD_MIN_SAMPLE = 50  # higher bar: controls every GO/WATCH/SKIP call
+SIGMA_STRATUM_MIN_SAMPLE = 8  # per (city, XND) -- smaller since it's a finer split than MIN_SAMPLE
 
 
 def _dedup_by_market(all_rows):
@@ -143,6 +144,82 @@ def compute_city_bias(rows) -> dict:
     return {city: (sum(diffs) / len(diffs), len(diffs)) for city, diffs in by_city_bias.items()}
 
 
+def compute_city_sigma(rows, city_bias: dict) -> dict:
+    """
+    EMOS-style spread estimate: how much should TXN actually be trusted
+    today, given today's XND? Rather than a hard XND>=3 skip rule (which
+    your own data shows has stopped producing a clean gradient at real
+    sample sizes), this estimates the REAL historical spread of forecast
+    error, stratified by (city, XND) -- literally "how wrong has TXN
+    actually been for this city when XND was exactly this value."
+
+    XND is treated as categorical (it only takes a few small integer
+    values) rather than fit as a continuous regression -- more robust
+    and more transparent with few distinct x-values.
+
+    Returns {city: {xnd_value: (sigma, n)}}. Only includes a (city, xnd)
+    entry once it has SIGMA_STRATUM_MIN_SAMPLE+ samples -- below that,
+    the caller (scoring.py) falls back to a pooled city-level sigma, and
+    below THAT, a static prior. Same gating philosophy as everything
+    else in this file, just applied one level finer.
+    """
+    import statistics
+    from collections import defaultdict
+
+    residuals_by_city_xnd = defaultdict(list)
+    for r in rows:
+        actual = r.get("actual_high")
+        xnd = r.get("xnd")
+        if not actual or not xnd:
+            continue
+        try:
+            txn = float(r["txn"])
+            actual_f = float(actual)
+        except (ValueError, TypeError):
+            continue
+        bias, _ = city_bias.get(r["city"], (0.0, 0))
+        residual = (txn - bias) - actual_f  # bias-corrected forecast minus reality
+        residuals_by_city_xnd[(r["city"], xnd)].append(residual)
+
+    result = {}
+    for (city, xnd), residuals in residuals_by_city_xnd.items():
+        if len(residuals) < SIGMA_STRATUM_MIN_SAMPLE:
+            continue
+        sigma = statistics.stdev(residuals) if len(residuals) > 1 else abs(residuals[0])
+        result.setdefault(city, {})[xnd] = (round(sigma, 2), len(residuals))
+    return result
+
+
+def compute_city_sigma_pooled(rows, city_bias: dict) -> dict:
+    """Fallback level 2: sigma pooled across ALL XND values for a city,
+    for when a specific (city, XND) stratum doesn't have enough samples
+    yet but the city overall does. Gated by MIN_SAMPLE (15), same bar as
+    the rest of the per-city stats in this file."""
+    import statistics
+    from collections import defaultdict
+
+    residuals_by_city = defaultdict(list)
+    for r in rows:
+        actual = r.get("actual_high")
+        if not actual:
+            continue
+        try:
+            txn = float(r["txn"])
+            actual_f = float(actual)
+        except (ValueError, TypeError):
+            continue
+        bias, _ = city_bias.get(r["city"], (0.0, 0))
+        residuals_by_city[r["city"]].append((txn - bias) - actual_f)
+
+    result = {}
+    for city, residuals in residuals_by_city.items():
+        if len(residuals) < MIN_SAMPLE:
+            continue
+        sigma = statistics.stdev(residuals) if len(residuals) > 1 else abs(residuals[0])
+        result[city] = (round(sigma, 2), len(residuals))
+    return result
+
+
 def print_app_vs_website_comparison(all_rows):
     """Paired comparison: only rows where BOTH sides resolved. Direct
     test of the original app/website divergence edge."""
@@ -185,6 +262,19 @@ def suggest_threshold(rows, outcome_field, target_win_rate=0.70):
     best_cutoff = None
     for i in range(len(scored)):
         chunk = scored[:i + 1]
+        if len(chunk) < MIN_SAMPLE:
+            # BUG FIXED 2026-07-31: without this floor, a small early
+            # prefix (e.g. a handful of lucky wins among many ties at
+            # the top confidence value) could satisfy the win-rate
+            # target on a sample size too small to mean anything, and
+            # lock in a threshold that doesn't reflect the TRUE win rate
+            # at that confidence level once more samples are included.
+            # Confirmed on real data: 13 rows tied at confidence=1.00
+            # had a true win rate of 53.8% (well under 70%), but the old
+            # code had already locked best_cutoff=1.00 from an early
+            # lucky streak within those ties, before enough losses
+            # accumulated to reveal the real rate.
+            continue
         wr = sum(int(r[outcome_field]) for r in chunk) / len(chunk)
         if wr >= target_win_rate:
             best_cutoff = float(chunk[-1]["confidence"])
@@ -199,13 +289,14 @@ def suggest_threshold(rows, outcome_field, target_win_rate=0.70):
         return None
 
 
-def write_learned_adjustments(app_rows, city_bias: dict, app_suggested_threshold):
+def write_learned_adjustments(app_rows, city_bias: dict, app_suggested_threshold,
+                               city_sigma: dict, city_sigma_pooled: dict):
     """Writes learned_adjustments.json for scoring.py to read. Uses APP
     results for the confidence threshold, since that's what actually
-    drives real trading decisions. city_txn_bias is platform-independent.
-    Every value is gated by a sample-size minimum -- missing keys just
-    mean 'not enough data yet', and scoring.py already treats that as
-    'fall back to the static default'."""
+    drives real trading decisions. city_txn_bias and the sigma estimates
+    are platform-independent. Every value is gated by a sample-size
+    minimum -- missing keys just mean 'not enough data yet', and
+    scoring.py already treats that as 'fall back to the static default'."""
     adjustments = {"generated_at": datetime.now(timezone.utc).isoformat()}
 
     if app_suggested_threshold is not None and len(app_rows) >= CONFIDENCE_THRESHOLD_MIN_SAMPLE:
@@ -220,6 +311,23 @@ def write_learned_adjustments(app_rows, city_bias: dict, app_suggested_threshold
     if city_bias_out:
         adjustments["city_txn_bias"] = city_bias_out
 
+    # EMOS-style spread estimates. Stratified (city, XND) sigma is more
+    # precise where it exists; pooled city-level sigma is the fallback
+    # for XND values that haven't individually crossed the sample bar
+    # yet. scoring.py tries stratified first, then pooled, then a
+    # static prior -- see get_sigma() there.
+    sigma_out = {
+        city: {str(xnd): sigma for xnd, (sigma, n) in xnd_map.items()}
+        for city, xnd_map in city_sigma.items()
+        if xnd_map
+    }
+    if sigma_out:
+        adjustments["city_sigma_by_xnd"] = sigma_out
+
+    pooled_out = {city: sigma for city, (sigma, n) in city_sigma_pooled.items()}
+    if pooled_out:
+        adjustments["city_sigma_pooled"] = pooled_out
+
     learned_file = os.path.join(os.path.dirname(__file__), "learned_adjustments.json")
     with open(learned_file, "w") as f:
         json.dump(adjustments, f, indent=2)
@@ -233,6 +341,33 @@ def write_learned_adjustments(app_rows, city_bias: dict, app_suggested_threshold
               f"will use static defaults for everything).")
 
 
+def print_city_sigma(all_rows, city_bias: dict):
+    print(f"\n{'=' * 60}\nEMOS spread (sigma) estimate -- how much to trust TXN, by city + XND\n{'=' * 60}")
+    print("Bias-corrected forecast error, stratified by XND. Larger sigma =")
+    print("more historical spread at that XND level for that city = less")
+    print(f"certain today's TXN is close to the real high. Stratum needs "
+          f"{SIGMA_STRATUM_MIN_SAMPLE}+ samples; below that, falls back to")
+    print("a pooled city-level estimate, shown separately below.")
+
+    city_sigma = compute_city_sigma(all_rows, city_bias)
+    if not city_sigma:
+        print("\nNo (city, XND) stratum has enough samples yet.")
+    else:
+        for city, xnd_map in sorted(city_sigma.items()):
+            for xnd, (sigma, n) in sorted(xnd_map.items()):
+                print(f"  {city:5s} / XND={xnd}: sigma={sigma:.2f}°F (n={n})")
+
+    city_sigma_pooled = compute_city_sigma_pooled(all_rows, city_bias)
+    print("\nPooled (all XND combined) -- fallback for strata without enough data yet:")
+    if not city_sigma_pooled:
+        print("  No city has enough total samples yet.")
+    else:
+        for city, (sigma, n) in sorted(city_sigma_pooled.items()):
+            print(f"  {city:5s}: sigma={sigma:.2f}°F (n={n})")
+
+    return city_sigma, city_sigma_pooled
+
+
 if __name__ == "__main__":
     app_rows = load_resolved_rows("app_outcome_win")
     website_rows = load_resolved_rows("outcome_win")
@@ -243,8 +378,10 @@ if __name__ == "__main__":
 
     print_app_vs_website_comparison(all_rows)
     city_bias = print_txn_bias(all_rows)
+    city_sigma, city_sigma_pooled = print_city_sigma(all_rows, city_bias)
 
     print(f"\n{'=' * 60}\nConfidence threshold suggestion (app-based, drives real trades)\n{'=' * 60}")
     app_suggested_threshold = suggest_threshold(app_rows, "app_outcome_win", target_win_rate=0.70)
 
-    write_learned_adjustments(app_rows, city_bias, app_suggested_threshold)
+    write_learned_adjustments(app_rows, city_bias, app_suggested_threshold,
+                               city_sigma, city_sigma_pooled)
