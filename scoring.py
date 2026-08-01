@@ -61,6 +61,44 @@ def get_txn_bias(city_code: str) -> float:
     return learned.get("city_txn_bias", {}).get(city_code, 0.0)
 
 
+# Static prior for sigma (EMOS spread parameter, °F) by XND value, used
+# only until enough real data exists to replace it with a learned
+# estimate. Rough intuition-based starting point, not fit from data --
+# every one of these gets superseded the moment calibrate.py has enough
+# samples for that city (see get_sigma's fallback order below).
+DEFAULT_SIGMA_BY_XND = {1: 1.5, 2: 2.5, 3: 4.0, 4: 5.5}
+DEFAULT_SIGMA_FALLBACK = 3.5  # for an XND value not even in the table above
+
+
+def get_sigma(city_code: str, xnd) -> tuple[float, str]:
+    """Returns (sigma, source) for a city/XND combination, trying the
+    most precise available estimate first:
+      1. (city, XND)-specific learned stratum (most precise)
+      2. Pooled city-level learned sigma, all XND combined (less
+         precise, but still real data for this city)
+      3. Static prior table (no real data yet at all)
+    'source' is one of "stratum" / "pooled" / "prior" -- callers can
+    surface this for transparency, same spirit as the existing
+    CALIBRATED / bias-corrected notes in main.py."""
+    learned = load_learned_adjustments()
+    xnd_str = str(xnd)
+
+    stratum = learned.get("city_sigma_by_xnd", {}).get(city_code, {})
+    if xnd_str in stratum:
+        return float(stratum[xnd_str]), "stratum"
+
+    pooled = learned.get("city_sigma_pooled", {})
+    if city_code in pooled:
+        return float(pooled[city_code]), "pooled"
+
+    try:
+        xnd_int = int(xnd)
+    except (TypeError, ValueError):
+        xnd_int = None
+    prior = DEFAULT_SIGMA_BY_XND.get(xnd_int, DEFAULT_SIGMA_FALLBACK)
+    return prior, "prior"
+
+
 @dataclass
 class CitySetup:
     city_code: str
