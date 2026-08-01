@@ -1,22 +1,66 @@
 #!/usr/bin/env python3
-"""Sends the contents of calibration_output.txt to Telegram."""
+"""Sends the contents of calibration_output.txt to Telegram, splitting
+into multiple messages if it's too long for one -- the report has grown
+as more sections were added, and the old fixed text[:3800] truncation
+was silently dropping everything past that point (confirmed 2026-07-31:
+an entire report section, plus the learned-adjustments write
+confirmation, were being cut off without any indication)."""
 import html
 import os
 import requests
 
-TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+# Telegram's hard limit is 4096 chars per message. Leave headroom for
+# the <pre>/<b> wrapper tags and a "(part N/M)" header on each chunk.
+MAX_CHUNK_CHARS = 3500
 
-with open("calibration_output.txt") as f:
-    text = f.read()
 
-# The report contains literal "<" characters (e.g. "<-- only 1, not
-# reliable yet"). Telegram's HTML parse_mode treats "<" as the start of
-# a tag, so unescaped report text breaks the send with a 400 error.
-# Escape it first, then wrap in <pre> for monospace formatting.
-safe_text = html.escape(text[:3800])
-message = "📈 <b>Calibration results</b>\n\n<pre>" + safe_text + "</pre>"
-url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-resp = requests.post(url, data={"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=15)
-resp.raise_for_status()
-print("Sent to Telegram.")
+def chunk_text(text: str, max_chars: int):
+    """Splits text into chunks up to max_chars each, breaking only at
+    line boundaries so no line is ever cut mid-word. A single line
+    longer than max_chars becomes its own (oversized) chunk rather than
+    being lost or splitting mid-word."""
+    lines = text.splitlines(keepends=True)
+    chunks = []
+    current = ""
+    for line in lines:
+        if len(current) + len(line) > max_chars and current:
+            chunks.append(current)
+            current = ""
+        current += line
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def send_message(token: str, chat_id: str, text: str) -> None:
+    resp = requests.post(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+
+
+def main():
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    chat_id = os.environ["TELEGRAM_CHAT_ID"]
+
+    with open("calibration_output.txt") as f:
+        full_text = f.read()
+
+    chunks = chunk_text(full_text, MAX_CHUNK_CHARS)
+
+    for i, chunk in enumerate(chunks, start=1):
+        safe_chunk = html.escape(chunk)
+        if len(chunks) == 1:
+            header = "📈 <b>Calibration results</b>\n\n"
+        else:
+            header = f"📈 <b>Calibration results (part {i}/{len(chunks)})</b>\n\n"
+        message = header + "<pre>" + safe_chunk + "</pre>"
+        send_message(token, chat_id, message)
+
+    print(f"Sent to Telegram in {len(chunks)} message(s).")
+
+
+if __name__ == "__main__":
+    main()
