@@ -99,6 +99,50 @@ def get_sigma(city_code: str, xnd) -> tuple[float, str]:
     return prior, "prior"
 
 
+# ---------------------------------------------------------------------------
+# EMOS core: turn (mu, sigma) into real per-bucket probabilities via the
+# Gaussian CDF, instead of "which single bucket does TXN fall in."
+# ---------------------------------------------------------------------------
+
+def normal_cdf(x: float, mu: float, sigma: float) -> float:
+    """Standard normal CDF via math.erf (stdlib only, no scipy/numpy
+    dependency needed). Phi(z) = 0.5 * (1 + erf(z / sqrt(2)))."""
+    if sigma <= 0:
+        # Degenerate case (shouldn't normally happen -- get_sigma always
+        # returns a positive estimate or prior) -- treat as a point mass
+        # at mu rather than dividing by zero.
+        return 1.0 if x >= mu else 0.0
+    z = (x - mu) / (sigma * math.sqrt(2))
+    return 0.5 * (1 + math.erf(z))
+
+
+def bucket_probability(lo: float, hi: float, mu: float, sigma: float) -> float:
+    """P(lo <= actual_high <= hi) under N(mu, sigma^2). Open-ended
+    buckets already use wide sentinel bounds (-200/300, see
+    data_sources.py) which work correctly here without special-casing --
+    normal_cdf(-200, ...) and normal_cdf(300, ...) naturally evaluate to
+    ~0 and ~1 for any realistic mu/sigma."""
+    return normal_cdf(hi, mu, sigma) - normal_cdf(lo, mu, sigma)
+
+
+def compute_bucket_probabilities(outcomes, mu: float, sigma: float):
+    """
+    outcomes: list of (label, lo, hi, price) tuples -- same shape
+    find_bucket_for_temp already consumes (from parse_outcomes /
+    parse_polymarket_us_outcomes).
+
+    Returns a list of (label, lo, hi, price, model_prob) for EVERY
+    bucket in the market, not just one match. This is what replaces
+    find_bucket_for_temp for decision-making -- instead of picking the
+    single bucket TXN happens to fall in, this gives a real probability
+    for every bucket, which is what an edge calculation (step 3) needs.
+    """
+    return [
+        (label, lo, hi, price, bucket_probability(lo, hi, mu, sigma))
+        for label, lo, hi, price in outcomes
+    ]
+
+
 @dataclass
 class CitySetup:
     city_code: str
