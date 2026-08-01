@@ -1,12 +1,37 @@
 {
-  "generated_at": "2026-08-01T14:16:40.949858+00:00",
-  "min_confidence_to_act": 0.999,
-  "min_confidence_to_act_source": "app",
+  "generated_at": "2026-08-01T22:06:59.787041+00:00",
   "city_txn_bias": {
     "LAX": -0.95,
     "SFO": -0.38,
     "MIA": -0.19,
     "ORD": -0.24,
     "LGA": 0.19
+  },
+  "city_sigma_by_xnd": {
+    "LAX": {
+      "1": 2.35,
+      "2": 4.72
+    },
+    "SFO": {
+      "3": 1.58,
+      "2": 8.06
+    },
+    "MIA": {
+      "1": 0.96,
+      "2": 5.45
+    },
+    "ORD": {
+      "2": 5.4
+    },
+    "LGA": {
+      "2": 3.65
+    }
+  },
+  "city_sigma_pooled": {
+    "LAX": 3.4,
+    "SFO": 5.89,
+    "MIA": 3.47,
+    "ORD": 5.01,
+    "LGA": 3.53
   }
 }
