@@ -167,6 +167,78 @@ class ScoreResult:
     recommendation: str
 
 
+# ---------------------------------------------------------------------------
+# Step 3: edge-based bucket selection and recommendation. Replaces the old
+# hand-tuned DEFAULT_WEIGHTS composite score entirely. "confidence" here IS
+# a real probability (model_prob), not a made-up score -- and the
+# recommendation comes from a real number (edge = model_prob - price), not
+# a hand-weighted blend of proxies. score_setup() below is kept for
+# reference but is no longer called by main.py once this is wired in.
+# ---------------------------------------------------------------------------
+
+# Static priors, same pattern as DEFAULT_SIGMA_BY_XND -- these get
+# superseded by learned, backtested values once calibrate.py has enough
+# edge-based trade history to validate them (future work, not yet built).
+EDGE_GO_THRESHOLD = 0.05     # model thinks a bucket is >=5pp more likely than the market says
+EDGE_SKIP_THRESHOLD = 0.0    # at or below zero edge -- no advantage, don't bet
+
+
+def find_best_edge_bucket(bucket_probs):
+    """bucket_probs: list of (label, lo, hi, price, model_prob) from
+    compute_bucket_probabilities(). Returns (label, lo, hi, price,
+    model_prob, edge) for whichever bucket has the HIGHEST edge --
+    i.e. the most mispriced opportunity in the whole market, not
+    necessarily the bucket TXN happens to fall in. Skips buckets with
+    no real price data. Returns None if no valid buckets."""
+    best = None
+    best_edge = None
+    for label, lo, hi, price, model_prob in bucket_probs:
+        if price is None:
+            continue
+        edge = model_prob - price
+        if best_edge is None or edge > best_edge:
+            best_edge = edge
+            best = (label, lo, hi, price, model_prob, edge)
+    return best
+
+
+def classify_edge(edge: float) -> str:
+    if edge >= EDGE_GO_THRESHOLD:
+        return "GO"
+    elif edge > EDGE_SKIP_THRESHOLD:
+        return "WATCH"
+    else:
+        return "SKIP"
+
+
+def evaluate_edge(city_code: str, bucket_probs, sigma: float, sigma_source: str) -> Optional[ScoreResult]:
+    """Full step-3 pipeline for one city/platform: pick the best-edge
+    bucket, classify it, build a ScoreResult with the same shape
+    score_setup() used to produce -- so log_prediction and everything
+    downstream needs zero changes. Returns None if there were no valid
+    buckets to evaluate (e.g. market fetch failed)."""
+    best = find_best_edge_bucket(bucket_probs)
+    if best is None:
+        return None
+    label, lo, hi, price, model_prob, edge = best
+
+    notes = [
+        f"model probability {model_prob:.1%} vs market price {price:.1%} -> edge {edge:+.1%}",
+        f"sigma={sigma:.2f}F (source: {sigma_source})",
+    ]
+    if sigma_source == "prior":
+        notes.append("sigma is a static prior, not yet learned from real data for this city/XND")
+
+    return ScoreResult(
+        city_code=city_code,
+        confidence=model_prob,
+        raw_score=edge,
+        hard_skip=False,  # sigma already encodes dispersion; no separate hard-skip rule needed
+        notes=notes,
+        recommendation=classify_edge(edge),
+    )
+
+
 def score_setup(setup: CitySetup) -> ScoreResult:
     weights = load_weights()
     learned = load_learned_adjustments()
