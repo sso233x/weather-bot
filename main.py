@@ -16,12 +16,15 @@ import requests
 from config import CITIES, US_STATION_SLUG
 from data_sources import (
     fetch_all_nbm, fetch_all_metar, fetch_gridpoint_max_temp_f,
-    build_event_slug, fetch_market_by_slug, parse_outcomes, find_bucket_for_temp,
+    build_event_slug, fetch_market_by_slug, parse_outcomes,
     build_polymarket_us_slug, fetch_polymarket_us_event, parse_polymarket_us_outcomes,
     extract_max_for_date, parse_bulletin_issue_time,
 )
 from history import load_history, save_history, record_run, recent_values
-from scoring import CitySetup, score_setup, get_txn_bias
+from scoring import (
+    get_txn_bias, get_sigma, compute_bucket_probabilities,
+    find_best_edge_bucket, evaluate_edge, ScoreResult,
+)
 from log import log_prediction, get_existing_prediction
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -165,43 +168,50 @@ def main():
 
         gridpoint = fetch_gridpoint_max_temp_f(city["lat"], city["lon"])
 
+        sigma, sigma_source = get_sigma(code, latest_xnd)
+
         slug = build_event_slug(city["slug"], target_date)
         event = fetch_market_by_slug(slug)
         outcomes = parse_outcomes(event) if event else []
 
         bucket_label = bucket_low = bucket_high = market_price = None
+        website_best = None
         if outcomes and corrected_txn is not None:
-            found = find_bucket_for_temp(outcomes, corrected_txn)
-            if found:
-                bucket_label, bucket_low, bucket_high, market_price = found
+            bucket_probs = compute_bucket_probabilities(outcomes, corrected_txn, sigma)
+            website_best = find_best_edge_bucket(bucket_probs)
+            if website_best:
+                bucket_label, bucket_low, bucket_high, market_price, _, _ = website_best
 
         # App side (Polymarket US) -- separate platform, separate order
         # book, resolves against NWS CLI instead of the website's source.
         # Confirmed different station for Chicago (mdw) and NYC (nyc).
         us_station_slug = US_STATION_SLUG.get(code)
         app_bucket_label = app_market_price = None
+        app_best = None
         if us_station_slug:
             app_slug = build_polymarket_us_slug(us_station_slug, target_date)
             app_event = fetch_polymarket_us_event(app_slug)
             app_outcomes = parse_polymarket_us_outcomes(app_event) if app_event else []
             if app_outcomes and corrected_txn is not None:
-                app_found = find_bucket_for_temp(app_outcomes, corrected_txn)
-                if app_found:
-                    app_bucket_label, _, _, app_market_price = app_found
+                app_bucket_probs = compute_bucket_probabilities(app_outcomes, corrected_txn, sigma)
+                app_best = find_best_edge_bucket(app_bucket_probs)
+                if app_best:
+                    app_bucket_label, _, _, app_market_price, _, _ = app_best
 
-        setup = CitySetup(
-            city_code=code,
-            target_date=str(target_date),
-            txn_history=txn_hist,
-            latest_xnd=latest_xnd,
-            gridpoint_max_f=gridpoint,
-            metar_f=metar_data.get(station),
-            market_bucket_label=bucket_label,
-            market_bucket_low=bucket_low,
-            market_bucket_high=bucket_high,
-            market_price=market_price,
-        )
-        result = score_setup(setup)
+        # Website drives the primary recommendation/confidence/notes that
+        # get logged -- app is tracked in parallel (see calibrate.py) but
+        # doesn't yet drive its own separate recommendation stream.
+        result = evaluate_edge(code, website_best, sigma, sigma_source)
+        if result is None:
+            # No valid website bucket to evaluate -- still need a
+            # placeholder so logging/display below doesn't crash. This
+            # replaces the old "WATCH, missing market bucket" case.
+            result = ScoreResult(
+                city_code=code, confidence=0.0, raw_score=0.0, hard_skip=False,
+                recommendation="WATCH",
+                notes=["no valid market bucket to evaluate -- missing event, price, or TXN"],
+            )
+
         log_prediction(code, station, str(target_date), latest_txn, latest_xnd,
                         bucket_label, market_price, result,
                         app_bucket_label, app_market_price)
@@ -214,8 +224,10 @@ def main():
             stat_bits.append(f"TXN {latest_txn}°F")
         if latest_xnd is not None:
             stat_bits.append(f"XND {latest_xnd}")
-        if setup.metar_f is not None:
-            stat_bits.append(f"now {setup.metar_f}°F")
+        if metar_data.get(station) is not None:
+            stat_bits.append(f"now {metar_data.get(station)}°F")
+        if gridpoint is not None:
+            stat_bits.append(f"grid {gridpoint}°F")
         if bucket_label:
             stat_bits.append(f"bucket {html.escape(bucket_label)} @ {market_price:.2f}")
         lines.append("   " + " · ".join(stat_bits) if stat_bits else "   no data")
@@ -229,16 +241,12 @@ def main():
         if reused_from_last_night:
             lines.append(f"   ↻ TXN reused from last night's run (not re-derived)")
 
-        # Only surface the notes that actually change the picture -- skip
-        # routine confirmations to keep this scannable on a phone.
-        highlights = []
+        # Under the edge-based system, notes are always meaningful (model
+        # probability, edge, sigma source, or the no-data fallback) --
+        # unlike the old system's many routine confirmations, there's no
+        # clutter to filter out, so just show all of them.
         for n in result.notes:
-            if any(kw in n for kw in ("HARD SKIP", "contradict", "outside", "diverge",
-                                       "can't", "unstable", "not found", "didn't match",
-                                       "CALIBRATED")):
-                highlights.append(n)
-        for h in highlights:
-            lines.append(f"   ⚠️ {html.escape(h)}")
+            lines.append(f"   • {html.escape(n)}")
 
         if not bucket_label:
             if event is None:
