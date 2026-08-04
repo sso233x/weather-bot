@@ -211,13 +211,13 @@ def classify_edge(edge: float) -> str:
         return "SKIP"
 
 
-def evaluate_edge(city_code: str, bucket_probs, sigma: float, sigma_source: str) -> Optional[ScoreResult]:
-    """Full step-3 pipeline for one city/platform: pick the best-edge
-    bucket, classify it, build a ScoreResult with the same shape
-    score_setup() used to produce -- so log_prediction and everything
-    downstream needs zero changes. Returns None if there were no valid
-    buckets to evaluate (e.g. market fetch failed)."""
-    best = find_best_edge_bucket(bucket_probs)
+def evaluate_edge(city_code: str, best, sigma: float, sigma_source: str) -> Optional[ScoreResult]:
+    """Full step-3 scoring for one city/platform, given an already-found
+    best-edge bucket (label, lo, hi, price, model_prob, edge) from
+    find_best_edge_bucket(). Callers keep `best` themselves for display/
+    logging (bucket label, price) -- this just builds the ScoreResult
+    (confidence/raw_score/recommendation/notes) from it. Returns None if
+    best is None (no valid buckets to evaluate)."""
     if best is None:
         return None
     label, lo, hi, price, model_prob, edge = best
