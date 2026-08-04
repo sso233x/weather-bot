@@ -23,7 +23,7 @@ from data_sources import (
 from history import load_history, save_history, record_run, recent_values
 from scoring import (
     get_txn_bias, get_sigma, compute_bucket_probabilities,
-    find_best_edge_bucket, evaluate_edge, ScoreResult,
+    find_best_edge_bucket, evaluate_edge, ScoreResult, MIN_PRICE_FOR_EDGE,
 )
 from log import log_prediction, get_existing_prediction
 
@@ -47,6 +47,22 @@ def send_telegram(message: str) -> None:
             timeout=15,
         )
         resp.raise_for_status()
+
+
+def _no_bucket_reason(outcomes, txn) -> str:
+    """Explains WHY no bucket was selected -- distinguishes genuinely
+    missing data from every real bucket being excluded by the price
+    floor (which is informative: it means the market has data, but none
+    of it was trustworthy enough to act on)."""
+    if not outcomes:
+        return "no valid market bucket to evaluate -- missing event or no buckets parsed"
+    if txn is None:
+        return "no valid market bucket to evaluate -- missing TXN"
+    all_below_floor = all(price is not None and price < MIN_PRICE_FOR_EDGE for _, _, _, price in outcomes)
+    if all_below_floor:
+        return (f"every bucket priced below {MIN_PRICE_FOR_EDGE:.0%} -- market likely too thin/new "
+                f"to trust yet, not treating any of them as real edge")
+    return "no valid market bucket to evaluate"
 
 
 def main():
@@ -209,7 +225,7 @@ def main():
             result = ScoreResult(
                 city_code=code, confidence=0.0, raw_score=0.0, hard_skip=False,
                 recommendation="WATCH",
-                notes=["no valid market bucket to evaluate -- missing event, price, or TXN"],
+                notes=[_no_bucket_reason(outcomes, corrected_txn)],
             )
 
         log_prediction(code, station, str(target_date), latest_txn, latest_xnd,
