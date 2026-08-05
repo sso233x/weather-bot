@@ -187,28 +187,37 @@ EDGE_SKIP_THRESHOLD = 0.0    # at or below zero edge -- no advantage, don't bet
 # 2026-08-04: a 01Z run (right as markets first open, often with thin
 # liquidity) showed every single city recommending a bucket priced
 # 0-4%, each with "edge" manufactured almost entirely from Gaussian
-# tail probability against an unreliable near-zero price. A price this
-# extreme is more likely a stale/thin-liquidity artifact -- or the tail
-# of a sigma that's still absorbing heat-wave-contaminated data -- than
-# a genuine mispricing. Buckets priced below this floor are excluded
-# from consideration entirely, not just discounted. Set to 0.05, not
-# 0.03: checked against that night's actual 5 real prices (0.04, 0.00,
-# 0.00, 0.00, 0.00) -- 0.03 only would have caught 4 of the 5.
+# tail probability against an unreliable near-zero price. Buckets priced
+# below this floor are excluded from consideration entirely, not just
+# discounted. Set to 0.05, not 0.03: checked against that night's actual
+# 5 real prices (0.04, 0.00, 0.00, 0.00, 0.00) -- 0.03 only would have
+# caught 4 of the 5.
+#
+# SYMMETRIC ceiling added same day: with the floor alone, several cities
+# started picking buckets priced 96-100% instead (the modal/consensus
+# pick, with the model showing huge NEGATIVE edge against it). SKIP was
+# still the safe outcome, but treating a near-100% price as a reliable
+# comparison point is the same mistake as trusting a near-0% one -- a
+# price that extreme, this far before resolution on what's likely a
+# freshly-opened market, is just as plausibly a thin-liquidity artifact
+# as genuine consensus. Both extremes get excluded, not just the low one.
 MIN_PRICE_FOR_EDGE = 0.05
+MAX_PRICE_FOR_EDGE = 0.95
 
 
 def find_best_edge_bucket(bucket_probs):
     """bucket_probs: list of (label, lo, hi, price, model_prob) from
     compute_bucket_probabilities(). Returns (label, lo, hi, price,
     model_prob, edge) for whichever bucket has the HIGHEST edge among
-    those priced at or above MIN_PRICE_FOR_EDGE -- i.e. the most
-    mispriced opportunity the system actually trusts enough to act on.
-    Skips buckets with no real price data, or a price too extreme to
-    trust. Returns None if no valid, sufficiently-priced buckets exist."""
+    those priced within [MIN_PRICE_FOR_EDGE, MAX_PRICE_FOR_EDGE] -- i.e.
+    the most mispriced opportunity the system actually trusts enough to
+    act on. Skips buckets with no real price data, or a price too
+    extreme (either direction) to trust. Returns None if no valid,
+    trustworthy-priced buckets exist."""
     best = None
     best_edge = None
     for label, lo, hi, price, model_prob in bucket_probs:
-        if price is None or price < MIN_PRICE_FOR_EDGE:
+        if price is None or price < MIN_PRICE_FOR_EDGE or price > MAX_PRICE_FOR_EDGE:
             continue
         edge = model_prob - price
         if best_edge is None or edge > best_edge:
