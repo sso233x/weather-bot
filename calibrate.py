@@ -51,6 +51,22 @@ def load_all_rows():
     return _dedup_by_market(all_rows)
 
 
+def is_edge_based_row(row) -> bool:
+    """Detects whether a row came from the step-3 edge-based scoring
+    system (evaluate_edge) vs. the old hand-tuned composite-score
+    system. Uses the exact note text evaluate_edge always produces
+    ("model probability X% ... -> edge Y%") rather than a hardcoded
+    date cutoff -- the cutoff would be fragile (depends on exactly when
+    each file got pasted into the live repo), while this is a direct,
+    reliable fingerprint of which code actually produced the row.
+    Matters because "confidence" means something different under each
+    system (old: arbitrary composite score; new: a real probability) --
+    mixing them in the same calibration (especially the confidence
+    threshold) is comparing apples to oranges."""
+    notes = row.get("notes", "")
+    return "model probability" in notes and "-> edge" in notes
+
+
 def load_resolved_rows(outcome_field="outcome_win"):
     """outcome_field is 'outcome_win' (website) or 'app_outcome_win'
     (app) -- returns only rows resolved on THAT side, deduped to one row
@@ -373,15 +389,34 @@ if __name__ == "__main__":
     website_rows = load_resolved_rows("outcome_win")
     all_rows = load_all_rows()
 
-    breakdown(app_rows, "app_outcome_win", "PRIMARY: App (Polymarket US) results")
-    breakdown(website_rows, "outcome_win", "SECONDARY REFERENCE: Website results")
+    app_rows_edge = [r for r in app_rows if is_edge_based_row(r)]
+    app_rows_pre_edge = [r for r in app_rows if not is_edge_based_row(r)]
+    website_rows_edge = [r for r in website_rows if is_edge_based_row(r)]
+
+    print(f"\n{'=' * 60}\nSYSTEM VERSION SPLIT\n{'=' * 60}")
+    print(f"App: {len(app_rows_edge)} resolved under the edge-based system (step 3+), "
+          f"{len(app_rows_pre_edge)} from before it.")
+    print("The section below is the NEW system's own track record --")
+    print("this is what actually tells you whether step 3 is working.")
+
+    breakdown(app_rows_edge, "app_outcome_win",
+              "EDGE-BASED SYSTEM ONLY (since step 3) -- App results")
+
+    breakdown(app_rows, "app_outcome_win",
+              "ALL-TIME (includes pre-edge-system rows) -- App results")
+    breakdown(website_rows, "outcome_win",
+              "ALL-TIME (includes pre-edge-system rows) -- Website results")
 
     print_app_vs_website_comparison(all_rows)
     city_bias = print_txn_bias(all_rows)
     city_sigma, city_sigma_pooled = print_city_sigma(all_rows, city_bias)
 
-    print(f"\n{'=' * 60}\nConfidence threshold suggestion (app-based, drives real trades)\n{'=' * 60}")
-    app_suggested_threshold = suggest_threshold(app_rows, "app_outcome_win", target_win_rate=0.70)
+    print(f"\n{'=' * 60}\nConfidence threshold suggestion (edge-based app rows only)\n{'=' * 60}")
+    print("Uses ONLY edge-based rows -- 'confidence' means something different")
+    print("under the old system (arbitrary composite score) vs. the new one")
+    print("(a real probability), so mixing them here would be comparing")
+    print("apples to oranges even though both are called 'confidence'.")
+    app_suggested_threshold = suggest_threshold(app_rows_edge, "app_outcome_win", target_win_rate=0.70)
 
-    write_learned_adjustments(app_rows, city_bias, app_suggested_threshold,
+    write_learned_adjustments(app_rows_edge, city_bias, app_suggested_threshold,
                                city_sigma, city_sigma_pooled)
