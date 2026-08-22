@@ -67,6 +67,20 @@ def is_edge_based_row(row) -> bool:
     return "model probability" in notes and "-> edge" in notes
 
 
+def is_price_band_excluded(row) -> bool:
+    """True if this row's recommendation came from main.py's
+    _no_bucket_reason fallback (every bucket priced outside the trusted
+    5%-95% band) rather than a genuine edge evaluation. Added 2026-08-13
+    to check a real hypothesis: does the price band -- which fixes a
+    real thin-liquidity problem -- also suppress genuine GO opportunities
+    by excluding exactly the extreme-priced buckets where real edge is
+    more likely to concentrate? Distinguishing this from a genuine
+    low-edge SKIP/WATCH is necessary to answer that with evidence
+    instead of guessing."""
+    notes = row.get("notes", "")
+    return "priced below" in notes or "priced above" in notes or "priced outside the" in notes
+
+
 def load_resolved_rows(outcome_field="outcome_win"):
     """outcome_field is 'outcome_win' (website) or 'app_outcome_win'
     (app) -- returns only rows resolved on THAT side, deduped to one row
@@ -389,18 +403,38 @@ if __name__ == "__main__":
     website_rows = load_resolved_rows("outcome_win")
     all_rows = load_all_rows()
 
-    app_rows_edge = [r for r in app_rows if is_edge_based_row(r)]
-    app_rows_pre_edge = [r for r in app_rows if not is_edge_based_row(r)]
+    # Three-way split, not two: a row logged by the CURRENT pipeline can
+    # either get a genuine edge evaluation, or get excluded entirely by
+    # the price band (every bucket priced outside 5%-95%) -- these are
+    # both "current system" rows, but is_edge_based_row's note-fingerprint
+    # only catches the first kind, since a price-band-excluded row's
+    # fallback note never mentions "model probability". Without this
+    # three-way split, excluded rows were silently miscounted as
+    # "pre-edge-system" in earlier reports, inflating that count.
+    app_rows_evaluated = [r for r in app_rows if is_edge_based_row(r)]
+    app_rows_excluded = [r for r in app_rows if is_price_band_excluded(r)]
+    app_rows_pre_edge = [r for r in app_rows if not is_edge_based_row(r) and not is_price_band_excluded(r)]
     website_rows_edge = [r for r in website_rows if is_edge_based_row(r)]
 
     print(f"\n{'=' * 60}\nSYSTEM VERSION SPLIT\n{'=' * 60}")
-    print(f"App: {len(app_rows_edge)} resolved under the edge-based system (step 3+), "
-          f"{len(app_rows_pre_edge)} from before it.")
-    print("The section below is the NEW system's own track record --")
+    print(f"App: {len(app_rows_evaluated)} genuinely evaluated (real edge computed), "
+          f"{len(app_rows_excluded)} excluded entirely by the price band (5%-95% trust "
+          f"band, every bucket fell outside it), {len(app_rows_pre_edge)} from before "
+          f"step 3 existed at all.")
+    total_current = len(app_rows_evaluated) + len(app_rows_excluded)
+    if total_current:
+        excl_pct = len(app_rows_excluded) / total_current
+        print(f"\nOf {total_current} current-pipeline rows, the price band excluded "
+              f"{excl_pct:.0%} of them from ever being evaluated for edge at all.")
+        print("If this is high, the price band -- which correctly fixes a real thin-")
+        print("liquidity problem -- may ALSO be suppressing genuine GO opportunities,")
+        print("since real edge often concentrates at price extremes, not just fake")
+        print("edge from stale/thin markets. Worth investigating further if this stays high.")
+    print("\nThe section below is the NEW system's own track record --")
     print("this is what actually tells you whether step 3 is working.")
 
-    breakdown(app_rows_edge, "app_outcome_win",
-              "EDGE-BASED SYSTEM ONLY (since step 3) -- App results")
+    breakdown(app_rows_evaluated, "app_outcome_win",
+              "EDGE-BASED SYSTEM ONLY (since step 3, genuinely evaluated) -- App results")
 
     breakdown(app_rows, "app_outcome_win",
               "ALL-TIME (includes pre-edge-system rows) -- App results")
@@ -416,7 +450,7 @@ if __name__ == "__main__":
     print("under the old system (arbitrary composite score) vs. the new one")
     print("(a real probability), so mixing them here would be comparing")
     print("apples to oranges even though both are called 'confidence'.")
-    app_suggested_threshold = suggest_threshold(app_rows_edge, "app_outcome_win", target_win_rate=0.70)
+    app_suggested_threshold = suggest_threshold(app_rows_evaluated, "app_outcome_win", target_win_rate=0.70)
 
-    write_learned_adjustments(app_rows_edge, city_bias, app_suggested_threshold,
+    write_learned_adjustments(app_rows_evaluated, city_bias, app_suggested_threshold,
                                city_sigma, city_sigma_pooled)
