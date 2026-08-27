@@ -240,7 +240,8 @@ def main():
 
         log_prediction(code, station, str(target_date), latest_txn, latest_xnd,
                         bucket_label, market_price, result,
-                        app_bucket_label, app_market_price)
+                        app_bucket_label, app_market_price,
+                        sigma, sigma_source)
 
         emoji = REC_EMOJI.get(result.recommendation, "⚪")
         lines.append(f"{emoji} <b>{city['name']}</b> — {result.recommendation} ({result.confidence:.0%})")
