@@ -17,6 +17,7 @@ Usage: python3 calibrate.py
 import csv
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 from log import LOG_FILE
@@ -79,6 +80,69 @@ def is_price_band_excluded(row) -> bool:
     instead of guessing."""
     notes = row.get("notes", "")
     return "priced below" in notes or "priced above" in notes or "priced outside the" in notes
+
+
+_SIGMA_NOTE_RE = re.compile(r"sigma=([\d.]+)F \(source: (\w+)\)")
+
+
+def parse_sigma_from_notes(notes: str):
+    """Extracts (sigma, source) from an edge-based row's notes, or
+    (None, None) if not found. Lets us cross-tabulate GO/edge outcomes
+    against which sigma source produced them, without needing dedicated
+    columns for historical rows logged before this diagnostic existed."""
+    m = _SIGMA_NOTE_RE.search(notes)
+    if not m:
+        return None, None
+    return float(m.group(1)), m.group(2)
+
+
+def get_sigma_for_row(row):
+    """Prefers the explicit sigma_used/sigma_source columns (added
+    2026-08-18); falls back to parsing notes text for older rows logged
+    before those columns existed."""
+    if row.get("sigma_used") and row.get("sigma_source"):
+        try:
+            return float(row["sigma_used"]), row["sigma_source"]
+        except (ValueError, TypeError):
+            pass
+    return parse_sigma_from_notes(row.get("notes", ""))
+
+
+def print_go_diagnostic(app_rows_evaluated):
+    """Lists every individual GO call from the edge-based system, with
+    its city/XND/sigma/sigma-source/edge/outcome. Added 2026-08-18 to
+    investigate a real pattern: GO calls were 0-for-9 while SKIP (19.3%)
+    and WATCH (16.7%) both won more often -- an inverted pattern that
+    looks more like a calibration issue than 'not enough samples yet'.
+    At this sample size, showing every row individually is more useful
+    than an aggregate breakdown."""
+    go_rows = [r for r in app_rows_evaluated if r.get("recommendation") == "GO"]
+    print(f"\n{'=' * 60}\nGO diagnostic -- every individual GO call (n={len(go_rows)})\n{'=' * 60}")
+    if not go_rows:
+        print("No GO calls in the edge-based system yet.")
+        return
+    wins = sum(int(r["outcome_win"]) for r in go_rows)
+    print(f"GO win rate: {wins}/{len(go_rows)} = {wins/len(go_rows):.1%}")
+    print("\nlogged_at              city  xnd  sigma   source    edge     outcome")
+    for r in sorted(go_rows, key=lambda r: r["logged_at"]):
+        sigma, source = get_sigma_for_row(r)
+        edge_match = re.search(r"-> edge ([+-]?[\d.]+)%", r.get("notes", ""))
+        edge = edge_match.group(1) + "%" if edge_match else "?"
+        outcome = "WIN" if r["outcome_win"] == "1" else "LOSS"
+        sigma_str = f"{sigma:.2f}F" if sigma is not None else "?"
+        print(f"  {r['logged_at'][:16]}  {r['city']:4s}  {r['xnd']:>3s}  "
+              f"{sigma_str:7s} {source or '?':9s} {edge:>7s}  {outcome}")
+
+    # Cross-tab: does a specific sigma source or a tight sigma correlate
+    # with the losses? Small n, but worth surfacing directly.
+    by_source = {}
+    for r in go_rows:
+        _, source = get_sigma_for_row(r)
+        by_source.setdefault(source or "unknown", []).append(int(r["outcome_win"]))
+    print("\nGO win rate by sigma source:")
+    for source, outcomes in sorted(by_source.items()):
+        wr = sum(outcomes) / len(outcomes)
+        print(f"  {source:9s}: n={len(outcomes)}  win rate={wr:.1%}")
 
 
 def load_resolved_rows(outcome_field="outcome_win"):
@@ -435,6 +499,8 @@ if __name__ == "__main__":
 
     breakdown(app_rows_evaluated, "app_outcome_win",
               "EDGE-BASED SYSTEM ONLY (since step 3, genuinely evaluated) -- App results")
+
+    print_go_diagnostic(app_rows_evaluated)
 
     breakdown(app_rows, "app_outcome_win",
               "ALL-TIME (includes pre-edge-system rows) -- App results")
