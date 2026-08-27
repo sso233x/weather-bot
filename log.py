@@ -15,6 +15,7 @@ FIELDNAMES = [
     "recommendation", "outcome_win", "actual_high",
     "app_bucket_label", "app_market_price", "app_outcome_win",
     "actual_winning_bucket", "actual_winning_bucket_app",
+    "sigma_used", "sigma_source",
     "notes",
 ]
 
@@ -40,7 +41,8 @@ def get_existing_prediction(city_code: str, target_date_str: str):
 
 def log_prediction(city_code, station, target_date, txn, xnd,
                     bucket_label, market_price, result,
-                    app_bucket_label=None, app_market_price=None) -> None:
+                    app_bucket_label=None, app_market_price=None,
+                    sigma_used=None, sigma_source=None) -> None:
     """
     Upserts by (city, target_date): if an UNRESOLVED row already exists
     for this city/target_date (e.g. the bot ran again the same day, or
@@ -58,6 +60,11 @@ def log_prediction(city_code, station, target_date, txn, xnd,
     app_bucket_label/app_market_price are the Polymarket US (app) side's
     equivalent bucket and price, optional so existing callers still work
     without changes.
+
+    sigma_used/sigma_source: the EMOS spread value and where it came
+    from (stratum/pooled/prior) at prediction time. Added 2026-08-18 so
+    future diagnostics (e.g. "does GO lose more when sigma is a tight
+    stratum estimate") don't have to regex-parse the notes text.
     """
     target_date_str = str(target_date)
     new_row = {
@@ -79,6 +86,8 @@ def log_prediction(city_code, station, target_date, txn, xnd,
         "app_outcome_win": "",  # filled in later by check_outcomes.py
         "actual_winning_bucket": "",  # filled in later by check_outcomes.py
         "actual_winning_bucket_app": "",  # filled in later by check_outcomes.py
+        "sigma_used": sigma_used if sigma_used is not None else "",
+        "sigma_source": sigma_source or "",
         "notes": " | ".join(result.notes),
     }
 
