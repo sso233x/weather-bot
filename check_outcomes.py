@@ -126,6 +126,8 @@ def main():
         row.setdefault("app_outcome_win", "")
         row.setdefault("actual_winning_bucket", "")
         row.setdefault("actual_winning_bucket_app", "")
+        row.setdefault("sigma_used", "")
+        row.setdefault("sigma_source", "")
 
     today = date.today()
     resolved_summary = []
