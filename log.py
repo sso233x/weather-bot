@@ -16,6 +16,7 @@ FIELDNAMES = [
     "app_bucket_label", "app_market_price", "app_outcome_win",
     "actual_winning_bucket", "actual_winning_bucket_app",
     "sigma_used", "sigma_source",
+    "all_buckets_json", "all_buckets_app_json",
     "notes",
 ]
 
@@ -42,7 +43,8 @@ def get_existing_prediction(city_code: str, target_date_str: str):
 def log_prediction(city_code, station, target_date, txn, xnd,
                     bucket_label, market_price, result,
                     app_bucket_label=None, app_market_price=None,
-                    sigma_used=None, sigma_source=None) -> None:
+                    sigma_used=None, sigma_source=None,
+                    all_buckets_json=None, all_buckets_app_json=None) -> None:
     """
     Upserts by (city, target_date): if an UNRESOLVED row already exists
     for this city/target_date (e.g. the bot ran again the same day, or
@@ -65,6 +67,12 @@ def log_prediction(city_code, station, target_date, txn, xnd,
     from (stratum/pooled/prior) at prediction time. Added 2026-08-18 so
     future diagnostics (e.g. "does GO lose more when sigma is a tight
     stratum estimate") don't have to regex-parse the notes text.
+
+    all_buckets_json/all_buckets_app_json: JSON-serialized list of EVERY
+    candidate bucket evaluated that night (label, price, model_prob,
+    edge) -- not just the one picked. Added 2026-08-18 so future
+    backtesting can ask "what if the 2nd-best edge had been picked
+    instead" without needing to have logged that at the time.
     """
     target_date_str = str(target_date)
     new_row = {
@@ -88,6 +96,8 @@ def log_prediction(city_code, station, target_date, txn, xnd,
         "actual_winning_bucket_app": "",  # filled in later by check_outcomes.py
         "sigma_used": sigma_used if sigma_used is not None else "",
         "sigma_source": sigma_source or "",
+        "all_buckets_json": all_buckets_json or "",
+        "all_buckets_app_json": all_buckets_app_json or "",
         "notes": " | ".join(result.notes),
     }
 
