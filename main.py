@@ -6,6 +6,7 @@ sends a Telegram summary. Does not place trades.
 """
 
 import html
+import json
 import os
 import sys
 from datetime import date, datetime, timedelta
@@ -202,6 +203,7 @@ def main():
 
         bucket_label = bucket_low = bucket_high = market_price = None
         website_best = None
+        bucket_probs = []
         if outcomes and corrected_txn is not None:
             bucket_probs = compute_bucket_probabilities(outcomes, corrected_txn, sigma)
             website_best = find_best_edge_bucket(bucket_probs)
@@ -214,6 +216,7 @@ def main():
         us_station_slug = US_STATION_SLUG.get(code)
         app_bucket_label = app_market_price = None
         app_best = None
+        app_bucket_probs = []
         if us_station_slug:
             app_slug = build_polymarket_us_slug(us_station_slug, target_date)
             app_event = fetch_polymarket_us_event(app_slug)
@@ -238,10 +241,23 @@ def main():
                 notes=[_no_bucket_reason(outcomes, corrected_txn)],
             )
 
+        # Full candidate list (every bucket, not just the winner) --
+        # lets future backtesting ask "what if a different bucket had
+        # been picked" without needing to have logged that at the time.
+        all_buckets_json = json.dumps([
+            {"label": label, "price": price, "model_prob": round(p, 4), "edge": round(p - price, 4)}
+            for label, lo, hi, price, p in bucket_probs
+        ]) if bucket_probs else None
+        all_buckets_app_json = json.dumps([
+            {"label": label, "price": price, "model_prob": round(p, 4), "edge": round(p - price, 4)}
+            for label, lo, hi, price, p in app_bucket_probs
+        ]) if app_bucket_probs else None
+
         log_prediction(code, station, str(target_date), latest_txn, latest_xnd,
                         bucket_label, market_price, result,
                         app_bucket_label, app_market_price,
-                        sigma, sigma_source)
+                        sigma, sigma_source,
+                        all_buckets_json, all_buckets_app_json)
 
         emoji = REC_EMOJI.get(result.recommendation, "⚪")
         lines.append(f"{emoji} <b>{city['name']}</b> — {result.recommendation} ({result.confidence:.0%})")
