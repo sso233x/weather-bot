@@ -128,6 +128,8 @@ def main():
         row.setdefault("actual_winning_bucket_app", "")
         row.setdefault("sigma_used", "")
         row.setdefault("sigma_source", "")
+        row.setdefault("all_buckets_json", "")
+        row.setdefault("all_buckets_app_json", "")
 
     today = date.today()
     resolved_summary = []
