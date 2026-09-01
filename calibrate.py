@@ -284,7 +284,69 @@ def compute_city_sigma(rows, city_bias: dict) -> dict:
     return result
 
 
-def compute_city_sigma_pooled(rows, city_bias: dict) -> dict:
+def compute_skewness(values):
+    """Fisher-Pearson skewness coefficient (g1), population version.
+    0 = symmetric. Positive = long right tail (occasional big overshoots
+    hot). Negative = long left tail (occasional big undershoots cold).
+    A meaningfully skewed distribution violates the Gaussian assumption
+    EMOS relies on -- the model would then systematically misjudge
+    probability in the tail it's NOT skewed toward, exactly the kind of
+    thing that could make a well-supported ("stratum") sigma still
+    produce bad edge calls."""
+    n = len(values)
+    if n < 3:
+        return None
+    mean = sum(values) / n
+    variance = sum((x - mean) ** 2 for x in values) / n
+    std = variance ** 0.5
+    if std == 0:
+        return 0.0
+    return (sum((x - mean) ** 3 for x in values) / n) / (std ** 3)
+
+
+def print_distribution_shape_check(rows, city_bias: dict):
+    """Added 2026-08-29 to investigate a real finding: all 9 losing GO
+    calls so far came from 'stratum' (the most-trusted, best-supported)
+    sigma source, concentrated in LAX. A well-supported sigma still
+    producing bad calls suggests the Gaussian symmetry assumption itself
+    might not fit -- this checks that directly against real residuals
+    rather than guessing further."""
+    from collections import defaultdict
+    residuals_by_city = defaultdict(list)
+    for r in rows:
+        actual = r.get("actual_high")
+        if not actual:
+            continue
+        try:
+            txn = float(r["txn"])
+            actual_f = float(actual)
+        except (ValueError, TypeError):
+            continue
+        bias, _ = city_bias.get(r["city"], (0.0, 0))
+        residuals_by_city[r["city"]].append((txn - bias) - actual_f)
+
+    print(f"\n{'=' * 60}\nDistribution shape check -- is forecast error actually symmetric?\n{'=' * 60}")
+    print("0 = symmetric (matches the Gaussian assumption EMOS relies on).")
+    print("Meaningfully positive/negative = skewed -- the model would then")
+    print("misjudge probability specifically in the tail it's NOT skewed")
+    print("toward, which a symmetric sigma can't fix no matter how much")
+    print("data supports it.\n")
+    for city, residuals in sorted(residuals_by_city.items()):
+        n = len(residuals)
+        if n < MIN_SAMPLE:
+            print(f"  {city:5s}: n={n}, not enough samples yet for a skew estimate")
+            continue
+        skew = compute_skewness(residuals)
+        sorted_r = sorted(residuals)
+        median = sorted_r[n // 2]
+        flag = ""
+        if abs(skew) > 0.5:
+            flag = "  <-- meaningfully skewed, worth a closer look"
+        print(f"  {city:5s}: skew={skew:+.2f}  min={min(residuals):+.1f}  "
+              f"median={median:+.1f}  max={max(residuals):+.1f}  (n={n}){flag}")
+
+
+
     """Fallback level 2: sigma pooled across ALL XND values for a city,
     for when a specific (city, XND) stratum doesn't have enough samples
     yet but the city overall does. Gated by MIN_SAMPLE (15), same bar as
@@ -509,6 +571,7 @@ if __name__ == "__main__":
 
     print_app_vs_website_comparison(all_rows)
     city_bias = print_txn_bias(all_rows)
+    print_distribution_shape_check(all_rows, city_bias)
     city_sigma, city_sigma_pooled = print_city_sigma(all_rows, city_bias)
 
     print(f"\n{'=' * 60}\nConfidence threshold suggestion (edge-based app rows only)\n{'=' * 60}")
