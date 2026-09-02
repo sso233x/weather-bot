@@ -346,7 +346,7 @@ def print_distribution_shape_check(rows, city_bias: dict):
               f"median={median:+.1f}  max={max(residuals):+.1f}  (n={n}){flag}")
 
 
-
+def compute_city_sigma_pooled(rows, city_bias: dict) -> dict:
     """Fallback level 2: sigma pooled across ALL XND values for a city,
     for when a specific (city, XND) stratum doesn't have enough samples
     yet but the city overall does. Gated by MIN_SAMPLE (15), same bar as
