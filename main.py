@@ -24,7 +24,7 @@ from data_sources import (
 from history import load_history, save_history, record_run, recent_values
 from scoring import (
     get_txn_bias, get_sigma, compute_bucket_probabilities,
-    find_best_edge_bucket, evaluate_edge, ScoreResult,
+    find_best_edge_bucket, find_most_probable_bucket, evaluate_edge, ScoreResult,
     MIN_PRICE_FOR_EDGE, MAX_PRICE_FOR_EDGE,
 )
 from log import log_prediction, get_existing_prediction
@@ -203,10 +203,12 @@ def main():
 
         bucket_label = bucket_low = bucket_high = market_price = None
         website_best = None
+        website_likely = None
         bucket_probs = []
         if outcomes and corrected_txn is not None:
             bucket_probs = compute_bucket_probabilities(outcomes, corrected_txn, sigma)
             website_best = find_best_edge_bucket(bucket_probs)
+            website_likely = find_most_probable_bucket(bucket_probs)
             if website_best:
                 bucket_label, bucket_low, bucket_high, market_price, _, _ = website_best
 
@@ -216,6 +218,7 @@ def main():
         us_station_slug = US_STATION_SLUG.get(code)
         app_bucket_label = app_market_price = None
         app_best = None
+        app_likely = None
         app_bucket_probs = []
         if us_station_slug:
             app_slug = build_polymarket_us_slug(us_station_slug, target_date)
@@ -224,6 +227,7 @@ def main():
             if app_outcomes and corrected_txn is not None:
                 app_bucket_probs = compute_bucket_probabilities(app_outcomes, corrected_txn, sigma)
                 app_best = find_best_edge_bucket(app_bucket_probs)
+                app_likely = find_most_probable_bucket(app_bucket_probs)
                 if app_best:
                     app_bucket_label, _, _, app_market_price, _, _ = app_best
 
@@ -260,7 +264,53 @@ def main():
                         all_buckets_json, all_buckets_app_json)
 
         emoji = REC_EMOJI.get(result.recommendation, "⚪")
-        lines.append(f"{emoji} <b>{city['name']}</b> — {result.recommendation} ({result.confidence:.0%})")
+
+        # Headline: most-likely bucket, NOT the edge-optimized one -- this
+        # is what actually answers "what will happen", and it's stable
+        # across a reused-TXN morning run (same mu/sigma -> same model
+        # probabilities -> same argmax), unlike the edge pick, which can
+        # shift purely because price moved. Confirmed 2026-09-03: showing
+        # the edge bucket as the headline was actively misleading (e.g.
+        # Chicago showed "86-87 @ 5%" as if it were the prediction, when
+        # the model's real most-likely outcome was near TXN -- 86-87 was
+        # just the least-overpriced thing available, not a forecast).
+        if website_likely:
+            likely_label, _, _, _, likely_prob = website_likely
+            lines.append(f"{emoji} <b>{city['name']}</b> — Most likely: "
+                          f"{html.escape(likely_label)} ({likely_prob:.0%})")
+        else:
+            lines.append(f"{emoji} <b>{city['name']}</b> — no market data to form a prediction")
+
+        # Recommendation is a SEPARATE line, clearly labeled as a trade
+        # decision, not the forecast itself. Only names a specific bucket
+        # when it's actually GO -- for SKIP/WATCH, naming the "least bad"
+        # bucket implied a recommendation that wasn't there.
+        if result.recommendation == "GO" and bucket_label:
+            lines.append(f"   Recommendation: GO — {html.escape(bucket_label)} @ "
+                          f"{market_price:.2f} (edge {result.raw_score:+.1%})")
+        elif result.recommendation == "WATCH" and bucket_label:
+            lines.append(f"   Recommendation: WATCH — {html.escape(bucket_label)} @ "
+                          f"{market_price:.2f} (edge {result.raw_score:+.1%}, below the GO bar)")
+        else:
+            lines.append(f"   Recommendation: {result.recommendation} "
+                          f"(no bucket beats market price by enough margin)")
+
+        if app_bucket_label and app_best:
+            app_edge = app_best[5]
+            lines.append(f"   app trade: {html.escape(app_bucket_label)} @ "
+                          f"{app_market_price:.2f} (edge {app_edge:+.1%})")
+
+        # Nightly vs morning framing. Mathematically, the most-likely
+        # bucket CANNOT change on a reused-TXN morning run -- mu/sigma
+        # are identical to last night's, so model probabilities (and
+        # therefore the argmax) are identical too. Only price-dependent
+        # things (edge, recommendation) can move during the day. So
+        # "reconfirms" is always accurate here, not just a guess at phrasing.
+        if reused_from_last_night:
+            lines.append(f"   ↻ Reconfirms tonight's prediction (TXN reused, not re-derived)")
+
+        if bias:
+            lines.append(f"   🔄 bias-corrected TXN by {bias:+.1f}°F (learned from history)")
 
         stat_bits = []
         if latest_txn is not None:
@@ -271,25 +321,8 @@ def main():
             stat_bits.append(f"now {metar_data.get(station)}°F")
         if gridpoint is not None:
             stat_bits.append(f"grid {gridpoint}°F")
-        if bucket_label:
-            stat_bits.append(f"bucket {html.escape(bucket_label)} @ {market_price:.2f}")
-        lines.append("   " + " · ".join(stat_bits) if stat_bits else "   no data")
-
-        if app_bucket_label:
-            lines.append(f"   app: {html.escape(app_bucket_label)} @ {app_market_price:.2f}")
-
-        if bias:
-            lines.append(f"   🔄 bias-corrected TXN by {bias:+.1f}°F (learned from history)")
-
-        if reused_from_last_night:
-            lines.append(f"   ↻ TXN reused from last night's run (not re-derived)")
-
-        # Under the edge-based system, notes are always meaningful (model
-        # probability, edge, sigma source, or the no-data fallback) --
-        # unlike the old system's many routine confirmations, there's no
-        # clutter to filter out, so just show all of them.
-        for n in result.notes:
-            lines.append(f"   • {html.escape(n)}")
+        stat_bits.append(f"sigma {sigma:.2f}F ({sigma_source})")
+        lines.append("   " + " · ".join(stat_bits))
 
         if not bucket_label:
             if event is None:
