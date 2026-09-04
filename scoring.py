@@ -226,6 +226,25 @@ def find_best_edge_bucket(bucket_probs):
     return best
 
 
+def find_most_probable_bucket(bucket_probs):
+    """Returns (label, lo, hi, price, model_prob) for whichever bucket
+    the model thinks is MOST LIKELY to actually happen -- independent of
+    price entirely. This answers a genuinely different question than
+    find_best_edge_bucket: "what will happen" vs. "what's worth
+    betting on". The two can (and often do) point at different buckets
+    -- e.g. the market may already price the likely bucket correctly,
+    leaving no edge there, while a cheap unlikely bucket happens to be
+    the least-overpriced thing available. Conflating the two into a
+    single displayed bucket is what made GO/SKIP reports confusing
+    (confirmed against real report 2026-09-03: Chicago showed '86-87 @
+    0.05' as if it were the prediction, when the model's real most-
+    likely bucket was near TXN, just not a good bet). Returns None if
+    bucket_probs is empty."""
+    if not bucket_probs:
+        return None
+    return max(bucket_probs, key=lambda b: b[4])  # b[4] is model_prob
+
+
 def classify_edge(edge: float) -> str:
     if edge >= EDGE_GO_THRESHOLD:
         return "GO"
