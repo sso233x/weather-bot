@@ -245,6 +245,69 @@ def find_most_probable_bucket(bucket_probs):
     return max(bucket_probs, key=lambda b: b[4])  # b[4] is model_prob
 
 
+def blend_probability(model_prob: float, market_prices: list) -> float:
+    """Combines the model's independent probability with whatever market
+    prices are available for the SAME bucket, treating each market price
+    as its own implied probability (standard prediction-market
+    interpretation) and averaging all available sources equally.
+
+    Deliberately kept as a SEPARATE number from model_prob, never fed
+    back into it -- edge detection (find_best_edge_bucket) needs
+    model_prob to stay independent of price, or GO/SKIP would become
+    meaningless. This blended number answers a different question:
+    "what does the best available combination of forecast + market
+    consensus think will happen", which is what actually gets shown as
+    the headline prediction now."""
+    values = [model_prob] + [p for p in market_prices if p is not None]
+    return sum(values) / len(values)
+
+
+def merge_bucket_sources(website_bucket_probs, app_bucket_probs):
+    """Merges website and app bucket lists (both already have identical
+    model_prob per bucket, since both come from the same mu/sigma -- only
+    their market prices differ) into one list keyed by (lo, hi) numeric
+    range, since label text can differ slightly between platforms even
+    for the same range. Returns a list of dicts, one per unique bucket
+    range seen in EITHER source:
+        {label, lo, hi, model_prob, website_price, app_price, blended}
+    A bucket only present in one source still gets included, with the
+    other source's price as None -- blend_probability() handles that by
+    averaging over whatever's actually available.
+    """
+    by_range = {}
+    for label, lo, hi, price, model_prob in website_bucket_probs:
+        by_range[(lo, hi)] = {
+            "label": label, "lo": lo, "hi": hi, "model_prob": model_prob,
+            "website_price": price, "app_price": None,
+        }
+    for label, lo, hi, price, model_prob in app_bucket_probs:
+        key = (lo, hi)
+        if key in by_range:
+            by_range[key]["app_price"] = price
+        else:
+            by_range[key] = {
+                "label": label, "lo": lo, "hi": hi, "model_prob": model_prob,
+                "website_price": None, "app_price": price,
+            }
+
+    merged = list(by_range.values())
+    for entry in merged:
+        entry["blended"] = blend_probability(
+            entry["model_prob"], [entry["website_price"], entry["app_price"]]
+        )
+    return merged
+
+
+def find_best_blended_bucket(merged_buckets):
+    """Returns the single entry (from merge_bucket_sources) with the
+    highest blended probability -- this is the actual answer to "which
+    bucket should I pick", combining the model with both markets'
+    collective pricing. Returns None if merged_buckets is empty."""
+    if not merged_buckets:
+        return None
+    return max(merged_buckets, key=lambda e: e["blended"])
+
+
 def classify_edge(edge: float) -> str:
     if edge >= EDGE_GO_THRESHOLD:
         return "GO"
