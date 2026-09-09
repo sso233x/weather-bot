@@ -26,6 +26,7 @@ from scoring import (
     get_txn_bias, get_sigma, compute_bucket_probabilities,
     find_best_edge_bucket, find_most_probable_bucket, evaluate_edge, ScoreResult,
     MIN_PRICE_FOR_EDGE, MAX_PRICE_FOR_EDGE,
+    merge_bucket_sources, find_best_blended_bucket,
 )
 from log import log_prediction, get_existing_prediction
 
@@ -231,6 +232,16 @@ def main():
                 if app_best:
                     app_bucket_label, _, _, app_market_price, _, _ = app_best
 
+        # Merge website + app into one blended prediction -- combines the
+        # model with both markets' own pricing (each market price IS an
+        # implied probability by construction). This is the actual "which
+        # bucket should I pick" answer, distinct from both the pure-model
+        # "most likely" and the pure-model "best edge" -- see
+        # merge_bucket_sources()/blend_probability() in scoring.py for why
+        # this is kept separate from the edge-detection math.
+        merged_buckets = merge_bucket_sources(bucket_probs, app_bucket_probs)
+        best_blend = find_best_blended_bucket(merged_buckets)
+
         # Website drives the primary recommendation/confidence/notes that
         # get logged -- app is tracked in parallel (see calibrate.py) but
         # doesn't yet drive its own separate recommendation stream.
@@ -274,17 +285,31 @@ def main():
         # Chicago showed "86-87 @ 5%" as if it were the prediction, when
         # the model's real most-likely outcome was near TXN -- 86-87 was
         # just the least-overpriced thing available, not a forecast).
-        if website_likely:
-            likely_label, _, _, _, likely_prob = website_likely
-            lines.append(f"{emoji} <b>{city['name']}</b> — Most likely: "
-                          f"{html.escape(likely_label)} ({likely_prob:.0%})")
+        # Headline: the blended pick -- combines model + website + app
+        # into a single "which bucket to pick" answer, with the component
+        # numbers shown right below so nothing is a black box. This
+        # replaced the pure-model "Most likely" headline on 2026-09-04
+        # per direct request: the report should combine every signal
+        # (website, app, TXN/XND/sigma) into one probability, not just
+        # show the model in isolation.
+        if best_blend:
+            lines.append(f"{emoji} <b>{city['name']}</b> — Pick: "
+                          f"{html.escape(best_blend['label'])} ({best_blend['blended']:.0%})")
+            component_bits = [f"model {best_blend['model_prob']:.0%}"]
+            if best_blend["website_price"] is not None:
+                component_bits.append(f"website {best_blend['website_price']:.0%}")
+            if best_blend["app_price"] is not None:
+                component_bits.append(f"app {best_blend['app_price']:.0%}")
+            lines.append("   " + " · ".join(component_bits))
         else:
             lines.append(f"{emoji} <b>{city['name']}</b> — no market data to form a prediction")
 
         # Recommendation is a SEPARATE line, clearly labeled as a trade
         # decision, not the forecast itself. Only names a specific bucket
         # when it's actually GO -- for SKIP/WATCH, naming the "least bad"
-        # bucket implied a recommendation that wasn't there.
+        # bucket implied a recommendation that wasn't there. Still driven
+        # by the pure MODEL probability (not the blend) -- edge detection
+        # needs an estimate independent of price to mean anything.
         if result.recommendation == "GO" and bucket_label:
             lines.append(f"   Recommendation: GO — {html.escape(bucket_label)} @ "
                           f"{market_price:.2f} (edge {result.raw_score:+.1%})")
@@ -300,14 +325,18 @@ def main():
             lines.append(f"   app trade: {html.escape(app_bucket_label)} @ "
                           f"{app_market_price:.2f} (edge {app_edge:+.1%})")
 
-        # Nightly vs morning framing. Mathematically, the most-likely
-        # bucket CANNOT change on a reused-TXN morning run -- mu/sigma
-        # are identical to last night's, so model probabilities (and
-        # therefore the argmax) are identical too. Only price-dependent
-        # things (edge, recommendation) can move during the day. So
-        # "reconfirms" is always accurate here, not just a guess at phrasing.
+        # Nightly vs morning framing. The underlying FORECAST (TXN/mu/
+        # sigma, and therefore model_prob for every bucket) genuinely
+        # cannot change on a reused-TXN morning run -- but since the
+        # headline Pick now blends in market prices too, and prices DO
+        # move overnight, the overall Pick CAN legitimately shift even
+        # when the forecast itself hasn't. Be precise about which part
+        # is actually guaranteed unchanged, not just re-assert
+        # "reconfirms" the way this used to when the headline was pure
+        # model probability.
         if reused_from_last_night:
-            lines.append(f"   ↻ Reconfirms tonight's prediction (TXN reused, not re-derived)")
+            lines.append(f"   ↻ Forecast unchanged from tonight (TXN reused) -- "
+                          f"market prices re-checked fresh")
 
         if bias:
             lines.append(f"   🔄 bias-corrected TXN by {bias:+.1f}°F (learned from history)")
