@@ -2,13 +2,7 @@ name: Weather Check
 
 on:
   schedule:
-    # 01:11 UTC = ~9:11pm EDT (shifts to 8:11pm once EST begins in Nov).
-    # Shifted off :05 -- round minute marks see more GitHub Actions
-    # scheduling congestion/delay. Today's runs landed ~2hrs late at the
-    # old :05 offset.
     - cron: "11 1 * * *"
-    # 13:37 UTC = ~9:37am EDT (shifts to 8:37am once EST begins in Nov).
-    # Same congestion-avoidance shift, off :05.
     - cron: "37 13 * * *"
   workflow_dispatch:
     inputs:
@@ -23,6 +17,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -57,7 +52,7 @@ jobs:
         run: |
           git config user.name "weather-bot"
           git config user.email "actions@github.com"
-          git add run_history.json trade_log.csv
+          git add run_history.json trade_log.csv prediction_history.json
           git diff --staged --quiet && exit 0
           git commit -m "Update run history + predictions [skip ci]"
           git pull --rebase origin main
