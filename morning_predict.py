@@ -12,6 +12,9 @@ The weather model is built from:
 
 Market prices are checked only after the weather distribution is built.
 They never influence the weather probabilities.
+
+For the primary betting prediction, the bot uses ONLY the bucket
+options actually available through the Polymarket app.
 """
 
 import html
@@ -81,9 +84,15 @@ def safe_float(value):
 
 def normalize_distribution(dist):
     total = sum(dist.values())
+
     if total <= 0:
         return {}
-    return {int(k): v / total for k, v in dist.items() if v > 0}
+
+    return {
+        int(k): v / total
+        for k, v in dist.items()
+        if v > 0
+    }
 
 
 def nearest_int(value):
@@ -96,19 +105,28 @@ def nearest_int(value):
 
 def nws_points(lat, lon):
     url = f"https://api.weather.gov/points/{lat},{lon}"
+
     response = requests.get(
         url,
         headers=NWS_HEADERS,
         timeout=20,
     )
+
     response.raise_for_status()
+
     return response.json()["properties"]
 
 
-def fetch_nws_hourly(lat, lon, target_date, now_et=None):
+def fetch_nws_hourly(
+    lat,
+    lon,
+    target_date,
+    now_et=None,
+):
     """Return today's NWS hourly forecast using only future hours."""
 
     props = nws_points(lat, lon)
+
     url = props.get("forecastHourly")
 
     if not url:
@@ -119,9 +137,11 @@ def fetch_nws_hourly(lat, lon, target_date, now_et=None):
         headers=NWS_HEADERS,
         timeout=20,
     )
+
     response.raise_for_status()
 
     periods = response.json()["properties"]["periods"]
+
     values = []
 
     for period in periods:
@@ -136,7 +156,9 @@ def fetch_nws_hourly(lat, lon, target_date, now_et=None):
             if now_et is not None and start < now_et:
                 continue
 
-            temp = safe_float(period.get("temperature"))
+            temp = safe_float(
+                period.get("temperature")
+            )
 
             if temp is None:
                 continue
@@ -161,7 +183,10 @@ def nws_forecast_high(hourly):
     if not hourly:
         return None
 
-    return max(row["temp"] for row in hourly)
+    return max(
+        row["temp"]
+        for row in hourly
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -181,9 +206,11 @@ def fetch_recent_metars():
         params=params,
         timeout=30,
     )
+
     response.raise_for_status()
 
     observations = response.json()
+
     by_station = defaultdict(list)
 
     for observation in observations:
@@ -195,7 +222,9 @@ def fetch_recent_metars():
         if station not in MIA_REGION_STATIONS:
             continue
 
-        temp_c = safe_float(observation.get("temp"))
+        temp_c = safe_float(
+            observation.get("temp")
+        )
 
         if temp_c is None:
             continue
@@ -261,7 +290,10 @@ def kmia_recent_trend(metars):
             )
 
             parsed.append(
-                (timestamp, row["temp"])
+                (
+                    timestamp,
+                    row["temp"],
+                )
             )
 
         except Exception:
@@ -299,7 +331,9 @@ def nearby_temperature_signal(metars):
         if station == "KMIA" or not rows:
             continue
 
-        nearby.append(rows[0]["temp"])
+        nearby.append(
+            rows[0]["temp"]
+        )
 
     if not nearby:
         return None
@@ -328,11 +362,17 @@ def normal_integer_distribution(
     if mu is None:
         return {}
 
-    sigma = max(float(sigma), 0.75)
+    sigma = max(
+        float(sigma),
+        0.75,
+    )
 
     raw = {}
 
-    for temp in range(low, high + 1):
+    for temp in range(
+        low,
+        high + 1,
+    ):
         upper = (
             temp + 0.5 - mu
         ) / sigma
@@ -385,7 +425,9 @@ def apply_current_temp_constraint(
     if not distribution or current_temp is None:
         return distribution
 
-    floor_temp = math.floor(current_temp)
+    floor_temp = math.floor(
+        current_temp
+    )
 
     result = {}
 
@@ -469,7 +511,10 @@ def build_weather_prediction(
         nws_distribution = (
             normal_integer_distribution(
                 nws_high,
-                max(1.5, sigma * 0.75),
+                max(
+                    1.5,
+                    sigma * 0.75,
+                ),
             )
         )
 
@@ -495,8 +540,10 @@ def build_weather_prediction(
             )
         )
 
-    final_distribution = combine_distributions(
-        distributions
+    final_distribution = (
+        combine_distributions(
+            distributions
+        )
     )
 
     if current_obs is not None:
@@ -528,15 +575,37 @@ def build_weather_prediction(
 
 def bucket_probability_from_distribution(
     distribution,
-    lo,
-    hi,
+    lo=None,
+    hi=None,
 ):
-    return sum(
-        probability
-        for temp, probability
-        in distribution.items()
-        if lo <= temp <= hi
-    )
+    """
+    Calculate probability for a market bucket.
+
+    Supports both normal bounded buckets:
+        90-91
+        92-93
+
+    and open-ended buckets:
+        85 or below
+        94 or above
+
+    lo=None means no lower bound.
+    hi=None means no upper bound.
+    """
+
+    total = 0.0
+
+    for temp, probability in distribution.items():
+
+        if lo is not None and temp < lo:
+            continue
+
+        if hi is not None and temp > hi:
+            continue
+
+        total += probability
+
+    return total
 
 
 def market_analysis(
@@ -552,6 +621,9 @@ def market_analysis(
 
     city = CITIES["MIA"]
 
+    # ---------------------------------------------------------
+    # Website market
+    # ---------------------------------------------------------
     try:
         slug = build_event_slug(
             city["slug"],
@@ -569,6 +641,7 @@ def market_analysis(
         )
 
         for label, lo, hi, price in outcomes:
+
             model_prob = (
                 bucket_probability_from_distribution(
                     distribution,
@@ -581,7 +654,11 @@ def market_analysis(
                 "label": label,
                 "price": price,
                 "model_prob": model_prob,
-                "edge": model_prob - price,
+                "edge": (
+                    model_prob - price
+                    if price is not None
+                    else None
+                ),
                 "lo": lo,
                 "hi": hi,
             })
@@ -591,6 +668,9 @@ def market_analysis(
             f"Website market analysis failed: {exc}"
         )
 
+    # ---------------------------------------------------------
+    # Polymarket app market
+    # ---------------------------------------------------------
     try:
         station_slug = US_STATION_SLUG["MIA"]
 
@@ -612,6 +692,7 @@ def market_analysis(
         )
 
         for label, lo, hi, price in app_outcomes:
+
             model_prob = (
                 bucket_probability_from_distribution(
                     distribution,
@@ -624,7 +705,11 @@ def market_analysis(
                 "label": label,
                 "price": price,
                 "model_prob": model_prob,
-                "edge": model_prob - price,
+                "edge": (
+                    model_prob - price
+                    if price is not None
+                    else None
+                ),
                 "lo": lo,
                 "hi": hi,
             })
@@ -643,6 +728,7 @@ def best_market_edge(rows):
         for row in rows
         if row["price"] is not None
         and 0.05 <= row["price"] <= 0.95
+        and row["edge"] is not None
     ]
 
     if not valid:
@@ -725,76 +811,73 @@ def format_report(
     )
 
     # ---------------------------------------------------------
-    # Find the most probable Polymarket bucket.
+    # APP BUCKET PREDICTION
     #
-    # This uses the actual market bucket ranges and the
-    # independent weather distribution. Market prices do NOT
-    # influence these probabilities.
+    # IMPORTANT:
+    # Only the actual buckets returned by the Polymarket app
+    # are used here.
+    #
+    # We do NOT hardcode:
+    # 85 or below
+    # 86-87
+    # 88-89
+    # 90-91
+    # 92-93
+    # 94 or above
+    #
+    # If Polymarket changes the available buckets, this will
+    # automatically follow the new structure.
     # ---------------------------------------------------------
-    all_market_buckets = []
+    app_buckets = []
 
-    for market_type in ("website", "app"):
-        for row in market.get(market_type, []):
-            lo = row.get("lo")
-            hi = row.get("hi")
+    for row in market.get("app", []):
 
-            if lo is None or hi is None:
-                continue
+        lo = row.get("lo")
+        hi = row.get("hi")
 
-            bucket_prob = bucket_probability_from_distribution(
+        # A valid bucket must have at least one boundary.
+        # This protects against malformed market data.
+        if lo is None and hi is None:
+            continue
+
+        bucket_prob = (
+            bucket_probability_from_distribution(
                 distribution,
                 lo,
                 hi,
             )
-
-            all_market_buckets.append({
-                "label": row["label"],
-                "lo": lo,
-                "hi": hi,
-                "model_prob": bucket_prob,
-                "source": market_type,
-            })
-
-    if all_market_buckets:
-        # Deduplicate identical buckets appearing on both
-        # the website and app.
-        unique_buckets = {}
-
-        for bucket in all_market_buckets:
-            key = (
-                bucket["lo"],
-                bucket["hi"],
-            )
-
-            if key not in unique_buckets:
-                unique_buckets[key] = bucket
-
-        market_buckets = list(
-            unique_buckets.values()
         )
 
-        best_bucket = max(
-            market_buckets,
+        app_buckets.append({
+            "label": row["label"],
+            "lo": lo,
+            "hi": hi,
+            "model_prob": bucket_prob,
+            "price": row.get("price"),
+            "edge": row.get("edge"),
+        })
+
+    if app_buckets:
+
+        best_app_bucket = max(
+            app_buckets,
             key=lambda row: row["model_prob"],
         )
 
-        best_bucket_prob = (
-            best_bucket["model_prob"]
+        best_app_probability = (
+            best_app_bucket["model_prob"]
         )
 
         confidence = confidence_label(
-            best_bucket_prob,
+            best_app_probability,
             len(analogs),
         )
 
     else:
-        best_bucket = None
-        best_bucket_prob = None
+        best_app_bucket = None
+        best_app_probability = None
 
-        confidence = confidence_label(
-            best_temp_prob,
-            len(analogs),
-        )
+        confidence = None
 
     # ---------------------------------------------------------
     # Header
@@ -809,35 +892,39 @@ def format_report(
     ]
 
     # ---------------------------------------------------------
-    # Betting bucket prediction
+    # Primary betting prediction
     # ---------------------------------------------------------
-    if best_bucket is not None:
+    if best_app_bucket is not None:
+
         lines.extend([
             (
-                f"MOST PROBABLE MARKET BUCKET: "
-                f"{best_bucket['label']} "
-                f"({best_bucket_prob:.0%})"
+                f"MOST PROBABLE APP BUCKET: "
+                f"{best_app_bucket['label']} "
+                f"({best_app_probability:.0%})"
             ),
             f"Confidence: {confidence}",
         ])
 
-        if best_bucket_prob >= 0.50:
+        if best_app_probability >= 0.50:
             lines.append(
-                "Most probable market bucket exceeds 50%."
+                "Most probable app bucket exceeds 50%."
             )
         else:
             lines.append(
-                "No market bucket exceeds 50% — "
+                "No app bucket exceeds 50% — "
                 "do not treat this as a high-confidence call."
             )
 
         lines.extend([
             "",
-            "MARKET BUCKET PROBABILITIES:",
+            "APP BUCKET PROBABILITIES:",
         ])
 
+        # Show every bucket actually available in the app.
+        # Sort by probability so the strongest model outcomes
+        # appear first.
         for bucket in sorted(
-            market_buckets,
+            app_buckets,
             key=lambda row: row["model_prob"],
             reverse=True,
         ):
@@ -847,17 +934,17 @@ def format_report(
             )
 
     else:
+
         lines.extend([
+            "NO APP BUCKETS AVAILABLE.",
             (
                 f"MOST PROBABLE HIGH: "
                 f"{best_temp}°F "
                 f"({best_temp_prob:.0%})"
             ),
-            f"Confidence: {confidence}",
             (
-                "No market buckets were available, "
-                "so confidence is based on the exact "
-                "temperature distribution."
+                "The app market could not be read, "
+                "so no betting-bucket prediction was made."
             ),
         ])
 
@@ -914,6 +1001,7 @@ def format_report(
         )
 
     if current_obs is not None:
+
         lines.append(
             f"  KMIA now: "
             f"{current_obs['temp']:.1f}°F"
@@ -964,9 +1052,11 @@ def format_report(
         )
 
     if analogs:
+
         analog_outcomes = defaultdict(float)
 
         for analog in analogs:
+
             high = nearest_int(
                 analog["actual_high"]
             )
@@ -1026,6 +1116,8 @@ def format_report(
         "POLYMARKET — WEATHER MODEL VS MARKET:",
     ])
 
+    # Website is still shown as a separate comparison.
+    # It does NOT determine the primary prediction.
     website_best = best_market_edge(
         market["website"]
     )
@@ -1043,6 +1135,7 @@ def format_report(
             "  Website: no trustworthy priced bucket found."
         )
 
+    # App market edge.
     app_best = best_market_edge(
         market["app"]
     )
@@ -1142,6 +1235,7 @@ def get_latest_nbm_for_today(
             )
 
             if txn is not None:
+
                 issue = (
                     parse_bulletin_issue_time(
                         mia_block
@@ -1174,7 +1268,9 @@ def get_latest_nbm_for_today(
 # ---------------------------------------------------------------------------
 
 def main():
+
     now_et = datetime.now(ET)
+
     target_date = now_et.date()
 
     print(
@@ -1182,7 +1278,9 @@ def main():
         f"for {target_date}..."
     )
 
+    # ---------------------------------------------------------
     # NBM
+    # ---------------------------------------------------------
     nbm = get_latest_nbm_for_today(
         target_date
     )
@@ -1196,10 +1294,15 @@ def main():
         f"cycle={nbm['cycle']}"
     )
 
-    # NWS — only remaining hours are used.
+    # ---------------------------------------------------------
+    # NWS
+    #
+    # Only remaining hours are used.
+    # ---------------------------------------------------------
     city = CITIES["MIA"]
 
     try:
+
         nws_hourly = fetch_nws_hourly(
             city["lat"],
             city["lon"],
@@ -1212,6 +1315,7 @@ def main():
         )
 
     except Exception as exc:
+
         print(
             f"NWS hourly forecast failed: "
             f"{exc}"
@@ -1219,8 +1323,11 @@ def main():
 
         nws_high = None
 
-    # Current observations.
+    # ---------------------------------------------------------
+    # Current observations
+    # ---------------------------------------------------------
     try:
+
         metars = fetch_recent_metars()
 
         current_obs = (
@@ -1240,6 +1347,7 @@ def main():
         )
 
     except Exception as exc:
+
         print(
             f"METAR observation pull failed: "
             f"{exc}"
@@ -1250,6 +1358,7 @@ def main():
         nearby_signal = None
 
     if current_obs is None:
+
         print(
             "ERROR: KMIA current observation "
             "unavailable."
@@ -1257,7 +1366,9 @@ def main():
 
         sys.exit(1)
 
-    # Same-morning historical model.
+    # ---------------------------------------------------------
+    # Same-morning historical model
+    # ---------------------------------------------------------
     historical_model = (
         get_historical_morning_model(
             target_date=target_date,
@@ -1276,7 +1387,9 @@ def main():
         f"{historical_model.get('analog_count', 0)}"
     )
 
-    # Learned NBM uncertainty.
+    # ---------------------------------------------------------
+    # Learned NBM uncertainty
+    # ---------------------------------------------------------
     sigma, sigma_source = get_sigma(
         "MIA",
         xnd,
@@ -1287,7 +1400,9 @@ def main():
         f"({sigma_source})"
     )
 
-    # Independent weather model.
+    # ---------------------------------------------------------
+    # Independent weather model
+    # ---------------------------------------------------------
     model = build_weather_prediction(
         raw_txn=raw_txn,
         xnd=xnd,
@@ -1303,6 +1418,7 @@ def main():
     ]
 
     if not distribution:
+
         print(
             "ERROR: could not build weather "
             "probability distribution."
@@ -1310,13 +1426,19 @@ def main():
 
         sys.exit(1)
 
-    # Market comparison happens only after
-    # the weather model is complete.
+    # ---------------------------------------------------------
+    # Market comparison
+    #
+    # This happens ONLY after the weather model is complete.
+    # ---------------------------------------------------------
     market = market_analysis(
         distribution,
         target_date,
     )
 
+    # ---------------------------------------------------------
+    # Report
+    # ---------------------------------------------------------
     report = format_report(
         target_date=target_date,
         now_et=now_et,
@@ -1333,6 +1455,7 @@ def main():
     )
 
     send_telegram(report)
+
     print(report)
 
 
