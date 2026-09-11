@@ -582,6 +582,8 @@ def market_analysis(
                 "price": price,
                 "model_prob": model_prob,
                 "edge": model_prob - price,
+                "lo": lo,
+                "hi": hi,
             })
 
     except Exception as exc:
@@ -623,6 +625,8 @@ def market_analysis(
                 "price": price,
                 "model_prob": model_prob,
                 "edge": model_prob - price,
+                "lo": lo,
+                "hi": hi,
             })
 
     except Exception as exc:
@@ -710,18 +714,91 @@ def format_report(
             "Unable to build a probability distribution."
         )
 
-    best_temp, best_prob = top[0]
+    # ---------------------------------------------------------
+    # Exact-temperature prediction
+    # ---------------------------------------------------------
+    best_temp, best_temp_prob = top[0]
 
     analogs = historical_model.get(
         "analogs",
         [],
     )
 
-    confidence = confidence_label(
-        best_prob,
-        len(analogs),
-    )
+    # ---------------------------------------------------------
+    # Find the most probable Polymarket bucket.
+    #
+    # This uses the actual market bucket ranges and the
+    # independent weather distribution. Market prices do NOT
+    # influence these probabilities.
+    # ---------------------------------------------------------
+    all_market_buckets = []
 
+    for market_type in ("website", "app"):
+        for row in market.get(market_type, []):
+            lo = row.get("lo")
+            hi = row.get("hi")
+
+            if lo is None or hi is None:
+                continue
+
+            bucket_prob = bucket_probability_from_distribution(
+                distribution,
+                lo,
+                hi,
+            )
+
+            all_market_buckets.append({
+                "label": row["label"],
+                "lo": lo,
+                "hi": hi,
+                "model_prob": bucket_prob,
+                "source": market_type,
+            })
+
+    if all_market_buckets:
+        # Deduplicate identical buckets appearing on both
+        # the website and app.
+        unique_buckets = {}
+
+        for bucket in all_market_buckets:
+            key = (
+                bucket["lo"],
+                bucket["hi"],
+            )
+
+            if key not in unique_buckets:
+                unique_buckets[key] = bucket
+
+        market_buckets = list(
+            unique_buckets.values()
+        )
+
+        best_bucket = max(
+            market_buckets,
+            key=lambda row: row["model_prob"],
+        )
+
+        best_bucket_prob = (
+            best_bucket["model_prob"]
+        )
+
+        confidence = confidence_label(
+            best_bucket_prob,
+            len(analogs),
+        )
+
+    else:
+        best_bucket = None
+        best_bucket_prob = None
+
+        confidence = confidence_label(
+            best_temp_prob,
+            len(analogs),
+        )
+
+    # ---------------------------------------------------------
+    # Header
+    # ---------------------------------------------------------
     lines = [
         f"KMIA MORNING WEATHER PREDICTION — {target_date}",
         (
@@ -729,26 +806,67 @@ def format_report(
             f"{now_et.strftime('%I:%M %p ET').lstrip('0')}"
         ),
         "",
-        (
-            f"MOST PROBABLE HIGH: "
-            f"{best_temp}°F ({best_prob:.0%})"
-        ),
-        f"Confidence: {confidence}",
     ]
 
-    if best_prob >= 0.50:
-        lines.append(
-            "Strongest outcome is above 50%."
-        )
-    else:
-        lines.append(
-            "No outcome exceeds 50% — "
-            "do not treat this as a high-confidence call."
-        )
+    # ---------------------------------------------------------
+    # Betting bucket prediction
+    # ---------------------------------------------------------
+    if best_bucket is not None:
+        lines.extend([
+            (
+                f"MOST PROBABLE MARKET BUCKET: "
+                f"{best_bucket['label']} "
+                f"({best_bucket_prob:.0%})"
+            ),
+            f"Confidence: {confidence}",
+        ])
 
+        if best_bucket_prob >= 0.50:
+            lines.append(
+                "Most probable market bucket exceeds 50%."
+            )
+        else:
+            lines.append(
+                "No market bucket exceeds 50% — "
+                "do not treat this as a high-confidence call."
+            )
+
+        lines.extend([
+            "",
+            "MARKET BUCKET PROBABILITIES:",
+        ])
+
+        for bucket in sorted(
+            market_buckets,
+            key=lambda row: row["model_prob"],
+            reverse=True,
+        ):
+            lines.append(
+                f"  {bucket['label']} — "
+                f"{bucket['model_prob']:.1%}"
+            )
+
+    else:
+        lines.extend([
+            (
+                f"MOST PROBABLE HIGH: "
+                f"{best_temp}°F "
+                f"({best_temp_prob:.0%})"
+            ),
+            f"Confidence: {confidence}",
+            (
+                "No market buckets were available, "
+                "so confidence is based on the exact "
+                "temperature distribution."
+            ),
+        ])
+
+    # ---------------------------------------------------------
+    # Exact temperature distribution
+    # ---------------------------------------------------------
     lines.extend([
         "",
-        "TOP TEMPERATURES:",
+        "TOP EXACT TEMPERATURES:",
     ])
 
     for temp, probability in top:
@@ -756,6 +874,9 @@ def format_report(
             f"  {temp}°F — {probability:.1%}"
         )
 
+    # ---------------------------------------------------------
+    # Weather inputs
+    # ---------------------------------------------------------
     lines.extend([
         "",
         "WEATHER INPUTS:",
@@ -824,6 +945,9 @@ def format_report(
             f"vs KMIA)"
         )
 
+    # ---------------------------------------------------------
+    # Historical analogs
+    # ---------------------------------------------------------
     lines.extend([
         "",
         f"HISTORICAL SAME-MORNING ANALOGS: "
@@ -870,6 +994,9 @@ def format_report(
                 f"    {temp}°F — {probability:.0%}"
             )
 
+    # ---------------------------------------------------------
+    # Model mix
+    # ---------------------------------------------------------
     lines.extend([
         "",
         "MODEL MIX:",
@@ -891,6 +1018,9 @@ def format_report(
         ),
     ])
 
+    # ---------------------------------------------------------
+    # Polymarket comparison
+    # ---------------------------------------------------------
     lines.extend([
         "",
         "POLYMARKET — WEATHER MODEL VS MARKET:",
