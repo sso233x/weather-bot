@@ -15,6 +15,8 @@ They never influence the weather probabilities.
 
 For the primary betting prediction, the bot uses ONLY the bucket
 options actually available through the Polymarket app.
+
+Prediction tracking is passive and does not influence the weather model.
 """
 
 import html
@@ -38,9 +40,16 @@ from data_sources import (
     build_polymarket_us_slug,
     fetch_polymarket_us_event,
     parse_polymarket_us_outcomes,
+    fetch_actual_high,
 )
 from kmia_history import get_historical_morning_model
 from scoring import get_txn_bias, get_sigma
+from prediction_tracker import (
+    record_prediction,
+    resolve_pending_predictions,
+    format_tracking_summary,
+    load_history,
+)
 
 
 ET = ZoneInfo("America/New_York")
@@ -787,6 +796,7 @@ def format_report(
     market,
     sigma,
     sigma_source,
+    tracking_summary=None,
 ):
     distribution = model["distribution"]
 
@@ -812,21 +822,6 @@ def format_report(
 
     # ---------------------------------------------------------
     # APP BUCKET PREDICTION
-    #
-    # IMPORTANT:
-    # Only the actual buckets returned by the Polymarket app
-    # are used here.
-    #
-    # We do NOT hardcode:
-    # 85 or below
-    # 86-87
-    # 88-89
-    # 90-91
-    # 92-93
-    # 94 or above
-    #
-    # If Polymarket changes the available buckets, this will
-    # automatically follow the new structure.
     # ---------------------------------------------------------
     app_buckets = []
 
@@ -835,8 +830,6 @@ def format_report(
         lo = row.get("lo")
         hi = row.get("hi")
 
-        # A valid bucket must have at least one boundary.
-        # This protects against malformed market data.
         if lo is None and hi is None:
             continue
 
@@ -876,7 +869,6 @@ def format_report(
     else:
         best_app_bucket = None
         best_app_probability = None
-
         confidence = None
 
     # ---------------------------------------------------------
@@ -920,9 +912,6 @@ def format_report(
             "APP BUCKET PROBABILITIES:",
         ])
 
-        # Show every bucket actually available in the app.
-        # Sort by probability so the strongest model outcomes
-        # appear first.
         for bucket in sorted(
             app_buckets,
             key=lambda row: row["model_prob"],
@@ -1109,6 +1098,15 @@ def format_report(
     ])
 
     # ---------------------------------------------------------
+    # Tracking
+    # ---------------------------------------------------------
+    if tracking_summary:
+        lines.extend([
+            "",
+            tracking_summary,
+        ])
+
+    # ---------------------------------------------------------
     # Polymarket comparison
     # ---------------------------------------------------------
     lines.extend([
@@ -1116,8 +1114,6 @@ def format_report(
         "POLYMARKET — WEATHER MODEL VS MARKET:",
     ])
 
-    # Website is still shown as a separate comparison.
-    # It does NOT determine the primary prediction.
     website_best = best_market_edge(
         market["website"]
     )
@@ -1135,7 +1131,6 @@ def format_report(
             "  Website: no trustworthy priced bucket found."
         )
 
-    # App market edge.
     app_best = best_market_edge(
         market["app"]
     )
@@ -1277,6 +1272,30 @@ def main():
         f"Building KMIA morning prediction "
         f"for {target_date}..."
     )
+
+    # ---------------------------------------------------------
+    # Resolve previous predictions first.
+    #
+    # This does not resolve today's prediction.
+    # ---------------------------------------------------------
+    try:
+        tracking_history = resolve_pending_predictions(
+            actual_high_fetcher=fetch_actual_high,
+            today=target_date,
+        )
+
+        print(
+            "Prediction tracking resolved: "
+            f"{sum(1 for row in tracking_history if row.get('result') in ('WIN', 'LOSS'))}"
+        )
+
+    except Exception as exc:
+        print(
+            f"Prediction tracking resolution failed: "
+            f"{exc}"
+        )
+
+        tracking_history = load_history()
 
     # ---------------------------------------------------------
     # NBM
@@ -1437,6 +1456,121 @@ def main():
     )
 
     # ---------------------------------------------------------
+    # Determine the primary app bucket.
+    #
+    # Only live buckets returned by Polymarket are used.
+    # ---------------------------------------------------------
+    app_buckets = []
+
+    for row in market.get("app", []):
+
+        lo = row.get("lo")
+        hi = row.get("hi")
+
+        if lo is None and hi is None:
+            continue
+
+        bucket_prob = (
+            bucket_probability_from_distribution(
+                distribution,
+                lo,
+                hi,
+            )
+        )
+
+        app_buckets.append({
+            "label": row["label"],
+            "lo": lo,
+            "hi": hi,
+            "model_prob": bucket_prob,
+            "price": row.get("price"),
+            "edge": row.get("edge"),
+        })
+
+    if app_buckets:
+
+        best_app_bucket = max(
+            app_buckets,
+            key=lambda row: row["model_prob"],
+        )
+
+        best_app_probability = (
+            best_app_bucket["model_prob"]
+        )
+
+        confidence = confidence_label(
+            best_app_probability,
+            historical_model.get(
+                "analog_count",
+                0,
+            ),
+        )
+
+    else:
+
+        best_app_bucket = None
+        best_app_probability = None
+        confidence = None
+
+    # ---------------------------------------------------------
+    # Record today's prediction.
+    #
+    # The tracker itself prevents evening/manual runs from
+    # being recorded and prevents duplicate predictions.
+    # ---------------------------------------------------------
+    if best_app_bucket is not None:
+
+        try:
+
+            tracking_result = record_prediction(
+                target_date=target_date,
+                now_et=now_et,
+                predicted_bucket=(
+                    best_app_bucket["label"]
+                ),
+                lo=best_app_bucket["lo"],
+                hi=best_app_bucket["hi"],
+                model_probability=(
+                    best_app_probability
+                ),
+                confidence=confidence,
+                market_price=(
+                    best_app_bucket.get("price")
+                ),
+                analog_count=(
+                    historical_model.get(
+                        "analog_count",
+                        0,
+                    )
+                ),
+            )
+
+            print(
+                "Prediction tracking: "
+                f"{tracking_result['reason']}"
+            )
+
+        except Exception as exc:
+
+            print(
+                f"Prediction tracking record failed: "
+                f"{exc}"
+            )
+
+    # Reload after today's prediction has potentially been recorded.
+    try:
+        tracking_history = load_history()
+        tracking_summary = format_tracking_summary(
+            tracking_history
+        )
+    except Exception as exc:
+        print(
+            f"Prediction tracking summary failed: "
+            f"{exc}"
+        )
+        tracking_summary = None
+
+    # ---------------------------------------------------------
     # Report
     # ---------------------------------------------------------
     report = format_report(
@@ -1452,6 +1586,7 @@ def main():
         market=market,
         sigma=sigma,
         sigma_source=sigma_source,
+        tracking_summary=tracking_summary,
     )
 
     send_telegram(report)
