@@ -1259,6 +1259,169 @@ def get_latest_nbm_for_today(
 
 
 # ---------------------------------------------------------------------------
+# Tracking weather snapshot
+# ---------------------------------------------------------------------------
+
+def build_tracking_weather_inputs(
+    nbm,
+    nws_high,
+    current_obs,
+    trend,
+    nearby_signal,
+    historical_model,
+    model,
+    sigma,
+    sigma_source,
+):
+    """
+    Capture the major weather-model inputs used to make today's prediction.
+
+    These values are stored for future analysis only. They are not fed back
+    into the model during the current prediction.
+    """
+
+    analogs = historical_model.get(
+        "analogs",
+        [],
+    )
+
+    weighted_analog_total = 0.0
+    weighted_analog_weight = 0.0
+
+    for analog in analogs:
+        actual_high = safe_float(
+            analog.get("actual_high")
+        )
+
+        weight = safe_float(
+            analog.get("weight")
+        )
+
+        if (
+            actual_high is None
+            or weight is None
+            or weight <= 0
+        ):
+            continue
+
+        weighted_analog_total += (
+            actual_high * weight
+        )
+        weighted_analog_weight += weight
+
+    analog_average = (
+        weighted_analog_total
+        / weighted_analog_weight
+        if weighted_analog_weight > 0
+        else None
+    )
+
+    return {
+        "nbm_txn": (
+            round(float(nbm["txn"]), 2)
+            if nbm.get("txn") is not None
+            else None
+        ),
+        "nbm_bias_corrected_txn": (
+            round(
+                float(model["corrected_txn"]),
+                2,
+            )
+            if model.get("corrected_txn") is not None
+            else None
+        ),
+        "nbm_xnd": (
+            safe_float(nbm.get("xnd"))
+        ),
+        "nbm_cycle": nbm.get("cycle"),
+        "nws_remaining_high": (
+            round(float(nws_high), 2)
+            if nws_high is not None
+            else None
+        ),
+        "kmia_temperature": (
+            round(
+                float(current_obs["temp"]),
+                2,
+            )
+            if current_obs is not None
+            and current_obs.get("temp") is not None
+            else None
+        ),
+        "kmia_dewpoint": (
+            round(
+                float(current_obs["dewpoint"]),
+                2,
+            )
+            if current_obs is not None
+            and current_obs.get("dewpoint") is not None
+            else None
+        ),
+        "kmia_wind_speed": (
+            safe_float(
+                current_obs.get("wind_speed")
+            )
+            if current_obs is not None
+            else None
+        ),
+        "kmia_recent_trend": (
+            round(float(trend), 4)
+            if trend is not None
+            else None
+        ),
+        "nearby_average": (
+            round(
+                float(nearby_signal["avg"]),
+                2,
+            )
+            if nearby_signal is not None
+            else None
+        ),
+        "nearby_delta_vs_kmia": (
+            round(
+                float(
+                    nearby_signal[
+                        "delta_vs_kmia"
+                    ]
+                ),
+                2,
+            )
+            if nearby_signal is not None
+            else None
+        ),
+        "historical_analog_average": (
+            round(
+                float(analog_average),
+                2,
+            )
+            if analog_average is not None
+            else None
+        ),
+        "historical_analog_count": int(
+            historical_model.get(
+                "analog_count",
+                0,
+            )
+            or 0
+        ),
+        "historical_weight": model[
+            "hist_weight"
+        ],
+        "nws_weight": model[
+            "nws_weight"
+        ],
+        "nbm_weight": model[
+            "nbm_weight"
+        ],
+        "nbm_sigma": round(
+            float(sigma),
+            4,
+        ),
+        "nbm_sigma_source": sigma_source,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1513,6 +1676,26 @@ def main():
         confidence = None
 
     # ---------------------------------------------------------
+    # Build the weather snapshot for tracking.
+    #
+    # This is informational only and does not influence the
+    # prediction.
+    # ---------------------------------------------------------
+    tracking_weather_inputs = (
+        build_tracking_weather_inputs(
+            nbm=nbm,
+            nws_high=nws_high,
+            current_obs=current_obs,
+            trend=trend,
+            nearby_signal=nearby_signal,
+            historical_model=historical_model,
+            model=model,
+            sigma=sigma,
+            sigma_source=sigma_source,
+        )
+    )
+
+    # ---------------------------------------------------------
     # Record today's prediction.
     #
     # The tracker itself prevents evening/manual runs from
@@ -1542,6 +1725,9 @@ def main():
                         "analog_count",
                         0,
                     )
+                ),
+                weather_inputs=(
+                    tracking_weather_inputs
                 ),
             )
 
