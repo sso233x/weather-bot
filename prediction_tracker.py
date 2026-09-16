@@ -35,7 +35,7 @@ HISTORY_FILE = Path(
 # The bot is designed to make its prediction in the morning.
 # This prevents accidental evening/manual test runs from being counted.
 TRACKING_START_HOUR = 5
-TRACKING_END_HOUR = 12
+TRACKING_END_HOUR = 15
 
 
 def load_history(path=HISTORY_FILE):
