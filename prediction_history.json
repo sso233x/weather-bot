@@ -1,1 +1,35 @@
-[]
+[
+  {
+    "date": "2026-09-16",
+    "predicted_bucket": "92-93\u00b0F",
+    "lo": 92.0,
+    "hi": 93.0,
+    "model_probability": 0.587012,
+    "confidence": "GOOD",
+    "market_price": 0.73,
+    "analog_count": 80,
+    "weather_inputs": {
+      "nbm_txn": 90.0,
+      "nbm_bias_corrected_txn": 89.58,
+      "nbm_xnd": 1.0,
+      "nbm_cycle": "07",
+      "nws_remaining_high": 88.0,
+      "kmia_temperature": 91.04,
+      "kmia_dewpoint": 73.94,
+      "kmia_wind_speed": 12.0,
+      "kmia_recent_trend": null,
+      "nearby_average": 89.0,
+      "nearby_delta_vs_kmia": -2.04,
+      "historical_analog_average": 92.17,
+      "historical_analog_count": 80,
+      "historical_weight": 0.5,
+      "nws_weight": 0.3,
+      "nbm_weight": 0.2,
+      "nbm_sigma": 1.53,
+      "nbm_sigma_source": "stratum"
+    },
+    "actual_high": null,
+    "result": null,
+    "recorded_at": "2026-09-16T12:06:24.237524-04:00"
+  }
+]
