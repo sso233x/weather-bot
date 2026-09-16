@@ -9,7 +9,7 @@ Tracking is completely passive:
 - It does NOT influence the weather model.
 - It does NOT influence bucket probabilities.
 - It does NOT influence confidence.
-- It records only the original morning prediction for each date.
+- It records only the original prediction for each date.
 
 Actual highs come from the existing data_sources.fetch_actual_high()
 function, which uses the IEM ASOS daily summary as a practical proxy
@@ -22,7 +22,6 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-
 ET = ZoneInfo("America/New_York")
 
 HISTORY_FILE = Path(
@@ -32,15 +31,12 @@ HISTORY_FILE = Path(
     )
 )
 
-# The bot is designed to make its prediction in the morning.
-# This prevents accidental evening/manual test runs from being counted.
+# Predictions can be recorded from 5:00 AM through 2:59 PM ET.
 TRACKING_START_HOUR = 5
 TRACKING_END_HOUR = 15
 
 
 def load_history(path=HISTORY_FILE):
-    """Load prediction history from JSON."""
-
     path = Path(path)
 
     if not path.exists():
@@ -60,46 +56,23 @@ def load_history(path=HISTORY_FILE):
 
 
 def save_history(history, path=HISTORY_FILE):
-    """Save prediction history to JSON."""
-
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    temp_path = path.with_suffix(path.suffix + ".tmp")
 
-    temp_path = path.with_suffix(
-        path.suffix + ".tmp"
-    )
-
-    with temp_path.open(
-        "w",
-        encoding="utf-8",
-    ) as file:
-        json.dump(
-            history,
-            file,
-            indent=2,
-        )
+    with temp_path.open("w", encoding="utf-8") as file:
+        json.dump(history, file, indent=2)
 
     temp_path.replace(path)
 
 
 def is_tracking_time(now_et):
-    """
-    Return True only during the normal morning prediction window.
-
-    This prevents evening test runs from entering the win-rate history.
-    """
-
     if now_et is None:
         return False
 
     if now_et.tzinfo is None:
-        now_et = now_et.replace(
-            tzinfo=ET
-        )
+        now_et = now_et.replace(tzinfo=ET)
 
     hour = now_et.astimezone(ET).hour
 
@@ -110,12 +83,7 @@ def is_tracking_time(now_et):
     )
 
 
-def prediction_exists_for_date(
-    history,
-    target_date,
-):
-    """Check whether a prediction has already been recorded for a date."""
-
+def prediction_exists_for_date(history, target_date):
     date_string = target_date.isoformat()
 
     return any(
@@ -136,13 +104,6 @@ def record_prediction(
     analog_count=0,
     path=HISTORY_FILE,
 ):
-    """
-    Record the original morning prediction.
-
-    Only the first prediction for a date is recorded.
-    Evening/manual runs are ignored.
-    """
-
     if not is_tracking_time(now_et):
         return {
             "recorded": False,
@@ -151,10 +112,7 @@ def record_prediction(
 
     history = load_history(path)
 
-    if prediction_exists_for_date(
-        history,
-        target_date,
-    ):
+    if prediction_exists_for_date(history, target_date):
         return {
             "recorded": False,
             "reason": "prediction_already_exists",
@@ -184,15 +142,9 @@ def record_prediction(
     }
 
     history.append(record)
+    history.sort(key=lambda row: row.get("date", ""))
 
-    history.sort(
-        key=lambda row: row.get("date", "")
-    )
-
-    save_history(
-        history,
-        path,
-    )
+    save_history(history, path)
 
     return {
         "recorded": True,
@@ -201,13 +153,7 @@ def record_prediction(
     }
 
 
-def bucket_won(
-    actual_high,
-    lo,
-    hi,
-):
-    """Determine whether the actual high landed inside the predicted bucket."""
-
+def bucket_won(actual_high, lo, hi):
     if actual_high is None:
         return False
 
@@ -225,19 +171,10 @@ def resolve_pending_predictions(
     today,
     path=HISTORY_FILE,
 ):
-    """
-    Resolve completed predictions whose dates are before today.
-
-    Today's prediction is intentionally never resolved because the daily
-    high may still change.
-    """
-
     history = load_history(path)
-
     changed = False
 
     for record in history:
-
         if record.get("result") is not None:
             continue
 
@@ -251,6 +188,7 @@ def resolve_pending_predictions(
                 date_string,
                 "%Y-%m-%d",
             ).date()
+
         except ValueError:
             continue
 
@@ -262,6 +200,7 @@ def resolve_pending_predictions(
                 "KMIA",
                 target_date,
             )
+
         except Exception:
             actual_high = None
 
@@ -277,16 +216,12 @@ def resolve_pending_predictions(
             hi,
         )
 
-        record["actual_high"] = float(
-            actual_high
-        )
-
+        record["actual_high"] = float(actual_high)
         record["result"] = (
             "WIN"
             if won
             else "LOSS"
         )
-
         record["resolved_at"] = (
             datetime.now(ET).isoformat()
         )
@@ -294,22 +229,16 @@ def resolve_pending_predictions(
         changed = True
 
     if changed:
-        save_history(
-            history,
-            path,
-        )
+        save_history(history, path)
 
     return history
 
 
 def calculate_stats(history):
-    """Calculate overall tracking statistics."""
-
     resolved = [
         row
         for row in history
-        if row.get("result")
-        in ("WIN", "LOSS")
+        if row.get("result") in ("WIN", "LOSS")
     ]
 
     wins = sum(
@@ -341,7 +270,6 @@ def calculate_stats(history):
     confidence_stats = {}
 
     for record in resolved:
-
         confidence = record.get(
             "confidence",
             "UNKNOWN",
@@ -363,7 +291,6 @@ def calculate_stats(history):
             confidence_stats[confidence]["losses"] += 1
 
     for stats in confidence_stats.values():
-
         if stats["total"] > 0:
             stats["win_rate"] = (
                 stats["wins"]
@@ -382,10 +309,7 @@ def calculate_stats(history):
 
 
 def format_tracking_summary(history):
-    """Return a short human-readable tracking summary."""
-
     stats = calculate_stats(history)
-
     resolved = stats["resolved"]
 
     if resolved == 0:
@@ -413,9 +337,7 @@ def format_tracking_summary(history):
     )
 
     if confidence_stats:
-        lines.append(
-            "  By confidence:"
-        )
+        lines.append("  By confidence:")
 
         confidence_order = [
             "STRONG",
@@ -425,7 +347,6 @@ def format_tracking_summary(history):
         ]
 
         for confidence in confidence_order:
-
             row = confidence_stats.get(
                 confidence
             )
