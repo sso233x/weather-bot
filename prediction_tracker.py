@@ -14,6 +14,10 @@ Tracking is completely passive:
 Actual highs come from the existing data_sources.fetch_actual_high()
 function, which uses the IEM ASOS daily summary as a practical proxy
 for the official daily high.
+
+Each prediction also stores a snapshot of the major weather inputs used
+to create that prediction. This allows future calibration and performance
+analysis without changing the model itself.
 """
 
 import json
@@ -102,6 +106,7 @@ def record_prediction(
     confidence,
     market_price=None,
     analog_count=0,
+    weather_inputs=None,
     path=HISTORY_FILE,
 ):
     if not is_tracking_time(now_et):
@@ -136,13 +141,20 @@ def record_prediction(
         "analog_count": int(
             analog_count or 0
         ),
+        "weather_inputs": (
+            weather_inputs
+            if isinstance(weather_inputs, dict)
+            else {}
+        ),
         "actual_high": None,
         "result": None,
         "recorded_at": now_et.isoformat(),
     }
 
     history.append(record)
-    history.sort(key=lambda row: row.get("date", ""))
+    history.sort(
+        key=lambda row: row.get("date", "")
+    )
 
     save_history(history, path)
 
