@@ -28,8 +28,8 @@
       "nbm_sigma": 1.53,
       "nbm_sigma_source": "stratum"
     },
-    "actual_high": 91.0,
-    "result": "LOSS",
+    "actual_high": 92.0,
+    "result": "WIN",
     "recorded_at": "2026-09-16T12:06:24.237524-04:00",
     "resolved_at": "2026-09-17T12:04:55.545360-04:00"
   },
