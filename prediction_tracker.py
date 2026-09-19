@@ -3,7 +3,7 @@
 prediction_tracker.py
 
 Tracks KMIA morning Polymarket app-bucket predictions and resolves them
-against the settled Polymarket US KMIA temperature bucket.
+against the settled Polymarket US temperature bucket.
 
 Tracking is completely passive:
 - It does NOT influence the weather model.
@@ -11,13 +11,12 @@ Tracking is completely passive:
 - It does NOT influence confidence.
 - It records only the original prediction for each date.
 
-Resolution uses the actual Polymarket US market outcome rather than an
-independent weather-data source. This keeps tracking aligned with the
-market the prediction was actually made for.
+Resolution uses the Polymarket US market itself so the tracker measures
+whether the predicted app bucket actually won.
 
 Each prediction also stores a snapshot of the major weather inputs used
-to create that prediction. This allows future calibration and performance
-analysis without changing the model itself.
+to create that prediction. This allows future calibration and
+performance analysis without changing the model itself.
 """
 
 import json
@@ -38,6 +37,9 @@ HISTORY_FILE = Path(
 # Predictions can be recorded from 5:00 AM through 2:59 PM ET.
 TRACKING_START_HOUR = 5
 TRACKING_END_HOUR = 15
+
+# Polymarket US station slug from config.py.
+KMIA_US_STATION_SLUG = "mia"
 
 
 def load_history(path=HISTORY_FILE):
@@ -147,6 +149,7 @@ def record_prediction(
             else {}
         ),
         "actual_high": None,
+        "settled_bucket": None,
         "result": None,
         "recorded_at": now_et.isoformat(),
     }
@@ -166,6 +169,12 @@ def record_prediction(
 
 
 def bucket_won(actual_high, lo, hi):
+    """
+    Retained for compatibility.
+
+    This is not used for Polymarket US settlement resolution because
+    settlement is now determined by the actual winning app bucket.
+    """
     if actual_high is None:
         return False
 
@@ -178,43 +187,77 @@ def bucket_won(actual_high, lo, hi):
     return True
 
 
+def _predicted_bucket_matches_settled(
+    record,
+    settled_lo,
+    settled_hi,
+):
+    """
+    Determine whether the prediction's bucket is the exact bucket that
+    settled.
+
+    Open-ended buckets are represented internally with sentinel bounds
+    by parse_polymarket_us_outcomes(), so comparing both bounds works
+    for:
+        <=83
+        84-85
+        ...
+        >=92
+    """
+
+    predicted_lo = record.get("lo")
+    predicted_hi = record.get("hi")
+
+    if predicted_lo is None or predicted_hi is None:
+        return False
+
+    try:
+        return (
+            float(predicted_lo) == float(settled_lo)
+            and float(predicted_hi) == float(settled_hi)
+        )
+
+    except (TypeError, ValueError):
+        return False
+
+
 def resolve_pending_predictions(
     actual_high_fetcher,
     today,
     path=HISTORY_FILE,
 ):
     """
-    Resolve pending predictions.
+    Resolve every prior pending prediction whose Polymarket US event
+    has settled.
 
-    The supplied actual_high_fetcher is retained for compatibility with
-    the existing morning_predict.py call.
+    actual_high_fetcher is retained in the function signature so the
+    existing morning_predict.py does not need to change.
 
-    For KMIA, resolution is now based on the settled Polymarket US
-    temperature bucket. The fetcher is therefore not used for KMIA.
+    For KMIA, it is intentionally NOT used for resolution.
 
-    Older records that are still pending can be resolved on a later run.
+    The tracker instead:
+        1. Builds the KMIA Polymarket US event slug.
+        2. Fetches the event.
+        3. Reads the app buckets.
+        4. Finds the bucket whose YES price settled at 1.
+        5. Compares that bucket with the original prediction.
     """
 
     history = load_history(path)
     changed = False
 
-    # Import here to avoid making the tracker depend on data_sources
-    # during basic history operations.
     try:
         from data_sources import (
             build_polymarket_us_slug,
             fetch_polymarket_us_event,
             parse_polymarket_us_outcomes,
         )
+
     except Exception as e:
         print(
             f"Polymarket US tracker import failed: {e}"
         )
         return history
-
-    # US station slug used by the KMIA Polymarket app market.
-    # This should match the slug used by morning_predict.py.
-    us_station_slug = "miami"
 
     for record in history:
         if record.get("result") is not None:
@@ -234,14 +277,19 @@ def resolve_pending_predictions(
         except ValueError:
             continue
 
-        # Never try to resolve today's prediction.
+        # Never resolve today's prediction.
         if target_date >= today:
             continue
 
         try:
             slug = build_polymarket_us_slug(
-                us_station_slug,
+                KMIA_US_STATION_SLUG,
                 target_date,
+            )
+
+            print(
+                f"Checking Polymarket US settlement "
+                f"for KMIA {target_date}: {slug}"
             )
 
             event = fetch_polymarket_us_event(
@@ -250,8 +298,8 @@ def resolve_pending_predictions(
 
             if not event:
                 print(
-                    f"Polymarket US event not available "
-                    f"for KMIA {target_date}: {slug}"
+                    f"Polymarket US event not found "
+                    f"for KMIA {target_date}."
                 )
                 continue
 
@@ -269,13 +317,18 @@ def resolve_pending_predictions(
             settled_bucket = None
 
             for label, lo, hi, price in outcomes:
-                # A settled market has a YES price of either 0 or 1.
-                # We identify the winning bucket by YES = 1.
+                try:
+                    price = float(price)
+                except (TypeError, ValueError):
+                    continue
+
+                # A fully settled YES market should be 1.0.
                 if price >= 0.999:
                     settled_bucket = {
                         "label": label,
                         "lo": lo,
                         "hi": hi,
+                        "price": price,
                     }
                     break
 
@@ -286,30 +339,20 @@ def resolve_pending_predictions(
                 )
                 continue
 
-            predicted_lo = record.get("lo")
-            predicted_hi = record.get("hi")
-
-            actual_lo = settled_bucket["lo"]
-            actual_hi = settled_bucket["hi"]
-
-            # The prediction wins if its stored bucket is the same
-            # bucket that settled.
-            won = (
-                predicted_lo == actual_lo
-                and predicted_hi == actual_hi
-            )
-
-            record["actual_high"] = (
-                actual_lo
-                if actual_lo > -200
-                and actual_hi < 300
-                and actual_lo == actual_hi
-                else None
+            won = _predicted_bucket_matches_settled(
+                record,
+                settled_bucket["lo"],
+                settled_bucket["hi"],
             )
 
             record["settled_bucket"] = (
                 settled_bucket["label"]
             )
+
+            # Do not invent an exact temperature from an open-ended
+            # Polymarket bucket. Leave actual_high as None unless an
+            # exact finite bucket represents a single temperature.
+            record["actual_high"] = None
 
             record["result"] = (
                 "WIN"
