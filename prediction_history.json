@@ -63,8 +63,10 @@
       "nbm_sigma_source": "stratum"
     },
     "actual_high": null,
-    "result": null,
-    "recorded_at": "2026-09-17T12:04:55.172656-04:00"
+    "result": "LOSS",
+    "recorded_at": "2026-09-17T12:04:55.172656-04:00",
+    "settled_bucket": "84-85\u00b0F",
+    "resolved_at": "2026-09-20T12:48:05.654831-04:00"
   },
   {
     "date": "2026-09-18",
@@ -96,8 +98,10 @@
       "nbm_sigma_source": "stratum"
     },
     "actual_high": null,
-    "result": null,
-    "recorded_at": "2026-09-18T12:45:38.703652-04:00"
+    "result": "WIN",
+    "recorded_at": "2026-09-18T12:45:38.703652-04:00",
+    "settled_bucket": "90-91\u00b0F",
+    "resolved_at": "2026-09-20T12:48:05.772695-04:00"
   },
   {
     "date": "2026-09-19",
@@ -129,7 +133,43 @@
       "nbm_sigma_source": "stratum"
     },
     "actual_high": null,
+    "result": "LOSS",
+    "recorded_at": "2026-09-19T12:54:20.224183-04:00",
+    "settled_bucket": "90-91\u00b0F",
+    "resolved_at": "2026-09-20T12:48:05.857341-04:00"
+  },
+  {
+    "date": "2026-09-20",
+    "predicted_bucket": "88-89\u00b0F",
+    "lo": 88.0,
+    "hi": 89.0,
+    "model_probability": 0.298966,
+    "confidence": "LOW",
+    "market_price": 0.6,
+    "analog_count": 80,
+    "weather_inputs": {
+      "nbm_txn": 89.0,
+      "nbm_bias_corrected_txn": 88.62,
+      "nbm_xnd": 2.0,
+      "nbm_cycle": "07",
+      "nws_remaining_high": 86.0,
+      "kmia_temperature": 84.92,
+      "kmia_dewpoint": 73.94,
+      "kmia_wind_speed": 0.0,
+      "kmia_recent_trend": null,
+      "nearby_average": 85.34,
+      "nearby_delta_vs_kmia": 0.42,
+      "historical_analog_average": 87.29,
+      "historical_analog_count": 80,
+      "historical_weight": 0.5,
+      "nws_weight": 0.3,
+      "nbm_weight": 0.2,
+      "nbm_sigma": 2.81,
+      "nbm_sigma_source": "stratum"
+    },
+    "actual_high": null,
+    "settled_bucket": null,
     "result": null,
-    "recorded_at": "2026-09-19T12:54:20.224183-04:00"
+    "recorded_at": "2026-09-20T12:48:05.479893-04:00"
   }
 ]
