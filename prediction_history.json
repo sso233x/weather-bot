@@ -1,7 +1,7 @@
 [
   {
     "date": "2026-09-16",
-    "predicted_bucket": "92-93\u00b0F",
+    "predicted_bucket": "92-93°F",
     "lo": 92.0,
     "hi": 93.0,
     "model_probability": 0.587012,
@@ -35,7 +35,7 @@
   },
   {
     "date": "2026-09-17",
-    "predicted_bucket": "\u226483\u00b0F",
+    "predicted_bucket": "≤83°F",
     "lo": -200.0,
     "hi": 83.0,
     "model_probability": 0.294988,
@@ -58,19 +58,18 @@
       "historical_analog_count": 80,
       "historical_weight": 0.5,
       "nws_weight": 0.3,
-      "nbm_weight": 0.2,
       "nbm_sigma": 2.81,
       "nbm_sigma_source": "stratum"
     },
     "actual_high": null,
     "result": "LOSS",
     "recorded_at": "2026-09-17T12:04:55.172656-04:00",
-    "settled_bucket": "84-85\u00b0F",
+    "settled_bucket": "84-85°F",
     "resolved_at": "2026-09-20T12:48:05.654831-04:00"
   },
   {
     "date": "2026-09-18",
-    "predicted_bucket": "90-91\u00b0F",
+    "predicted_bucket": "90-91°F",
     "lo": 90.0,
     "hi": 91.0,
     "model_probability": 0.387033,
@@ -100,12 +99,12 @@
     "actual_high": null,
     "result": "WIN",
     "recorded_at": "2026-09-18T12:45:38.703652-04:00",
-    "settled_bucket": "90-91\u00b0F",
+    "settled_bucket": "90-91°F",
     "resolved_at": "2026-09-20T12:48:05.772695-04:00"
   },
   {
     "date": "2026-09-19",
-    "predicted_bucket": "88-89\u00b0F",
+    "predicted_bucket": "88-89°F",
     "lo": 88.0,
     "hi": 89.0,
     "model_probability": 0.378238,
@@ -133,14 +132,14 @@
       "nbm_sigma_source": "stratum"
     },
     "actual_high": null,
+    "settled_bucket": "90-91°F",
     "result": "LOSS",
     "recorded_at": "2026-09-19T12:54:20.224183-04:00",
-    "settled_bucket": "90-91\u00b0F",
     "resolved_at": "2026-09-20T12:48:05.857341-04:00"
   },
   {
     "date": "2026-09-20",
-    "predicted_bucket": "88-89\u00b0F",
+    "predicted_bucket": "88-89°F",
     "lo": 88.0,
     "hi": 89.0,
     "model_probability": 0.298966,
@@ -168,32 +167,33 @@
       "nbm_sigma_source": "stratum"
     },
     "actual_high": null,
-    "settled_bucket": "90-91\u00b0F",
+    "settled_bucket": "90-91°F",
     "result": "LOSS",
     "recorded_at": "2026-09-20T12:48:05.479893-04:00",
     "resolved_at": "2026-09-21T13:11:42.657199-04:00"
   },
   {
     "date": "2026-09-21",
-    "predicted_bucket": "84-85\u00b0F",
-    "lo": 84.0,
-    "hi": 85.0,
-    "model_probability": 0.385054,
-    "confidence": "LOW",
-    "market_price": 0.01,
+    "predicted_bucket": "88-89°F",
+    "lo": 88.0,
+    "hi": 89.0,
+    "model_probability": 0.745,
+    "confidence": "STRONG",
+    "market_price": 0.81,
     "analog_count": 80,
     "weather_inputs": {
       "nbm_txn": 87.0,
-      "nbm_bias_corrected_txn": 86.62,
+      "nbm_bias_corrected_txn": 86.6,
       "nbm_xnd": 2.0,
       "nbm_cycle": "07",
       "nws_remaining_high": 84.0,
-      "kmia_temperature": 84.02,
-      "kmia_dewpoint": 75.02,
+      "kmia_temperature": 84.0,
+      "kmia_dewpoint": 75.0,
       "kmia_wind_speed": 9.0,
       "kmia_recent_trend": null,
-      "nearby_average": 87.02,
-      "nearby_delta_vs_kmia": 3.0,
+      "nearby_average": 86.7,
+      "nearby_delta_vs_kmia": 2.7,
+      "kmia_observed_high_today": 88.0,
       "historical_analog_average": 86.74,
       "historical_analog_count": 80,
       "historical_weight": 0.5,
@@ -205,6 +205,8 @@
     "actual_high": null,
     "settled_bucket": null,
     "result": null,
-    "recorded_at": "2026-09-21T13:11:42.603018-04:00"
+    "recorded_at": "2026-09-21T13:11:42.603018-04:00",
+    "corrected_at": "2026-09-21T13:45:00-04:00",
+    "correction_reason": "Updated same-day prediction after adding observed-high constraint; 88°F had already been observed."
   }
 ]
