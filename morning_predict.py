@@ -9,6 +9,7 @@ The weather model is built from:
 - the latest NWS hourly forecast
 - the latest NBM TXN/XND
 - the current KMIA observation
+- the observed KMIA high so far today
 
 Market prices are checked only after the weather distribution is built.
 They never influence the weather probabilities.
@@ -60,6 +61,10 @@ NWS_HEADERS = {
 }
 
 AWC_METAR_URL = "https://aviationweather.gov/api/data/metar"
+
+NWS_OBSERVATIONS_URL = (
+    "https://api.weather.gov/stations/KMIA/observations"
+)
 
 MIA_REGION_STATIONS = [
     "KMIA",
@@ -196,6 +201,149 @@ def nws_forecast_high(hourly):
         row["temp"]
         for row in hourly
     )
+
+
+# ---------------------------------------------------------------------------
+# Observed KMIA high so far today
+# ---------------------------------------------------------------------------
+
+def fetch_kmia_observed_high_today(
+    target_date,
+    now_et=None,
+):
+    """
+    Find the highest temperature actually observed at KMIA so far today.
+
+    NWS station observations are used rather than the current observation
+    alone because the current temperature can fall after the day's high
+    has already occurred.
+
+    The returned value is rounded to the nearest whole degree because the
+    Polymarket temperature buckets are integer Fahrenheit buckets.
+    """
+
+    try:
+        start_et = datetime(
+            target_date.year,
+            target_date.month,
+            target_date.day,
+            0,
+            0,
+            0,
+            tzinfo=ET,
+        )
+
+        if now_et is None:
+            end_et = datetime.now(ET)
+        else:
+            end_et = now_et
+
+        # Never request observations beyond the current moment.
+        if end_et.date() != target_date:
+            end_et = datetime(
+                target_date.year,
+                target_date.month,
+                target_date.day,
+                23,
+                59,
+                59,
+                tzinfo=ET,
+            )
+
+        params = {
+            "start": start_et.isoformat(),
+            "end": end_et.isoformat(),
+            "limit": 500,
+        }
+
+        response = requests.get(
+            NWS_OBSERVATIONS_URL,
+            params=params,
+            headers=NWS_HEADERS,
+            timeout=30,
+        )
+
+        response.raise_for_status()
+
+        features = response.json().get(
+            "features",
+            [],
+        )
+
+        observed_temps = []
+
+        for feature in features:
+            properties = feature.get(
+                "properties",
+                {},
+            )
+
+            timestamp = properties.get(
+                "timestamp"
+            )
+
+            temperature = properties.get(
+                "temperature",
+                {},
+            )
+
+            temp_c = safe_float(
+                temperature.get("value")
+            )
+
+            if temp_c is None:
+                continue
+
+            if timestamp:
+                try:
+                    observation_time = (
+                        datetime.fromisoformat(
+                            timestamp.replace(
+                                "Z",
+                                "+00:00",
+                            )
+                        ).astimezone(ET)
+                    )
+
+                    if (
+                        observation_time.date()
+                        != target_date
+                    ):
+                        continue
+
+                    if (
+                        now_et is not None
+                        and observation_time > now_et
+                    ):
+                        continue
+
+                except Exception:
+                    continue
+
+            temp_f = (
+                temp_c * 9 / 5 + 32
+            )
+
+            observed_temps.append(
+                temp_f
+            )
+
+        if not observed_temps:
+            return None
+
+        return float(
+            nearest_int(
+                max(observed_temps)
+            )
+        )
+
+    except Exception as exc:
+        print(
+            f"KMIA observed-high lookup failed: "
+            f"{exc}"
+        )
+
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +577,12 @@ def apply_current_temp_constraint(
     distribution,
     current_temp,
 ):
-    """The final high should not normally be below an already observed temp."""
+    """
+    The final high should not normally be below an already observed temp.
+
+    This retains the existing behavior for the current temperature. The
+    stronger observed-high constraint is applied separately afterward.
+    """
 
     if not distribution or current_temp is None:
         return distribution
@@ -449,6 +602,51 @@ def apply_current_temp_constraint(
     return normalize_distribution(result)
 
 
+def apply_observed_high_constraint(
+    distribution,
+    observed_high_today,
+):
+    """
+    Enforce the highest temperature already observed today as a hard floor.
+
+    If KMIA has already reached 88°F, the final daily high cannot be 87°F
+    or lower. Those outcomes are removed completely and the remaining
+    probability is redistributed across the possible final highs.
+    """
+
+    if (
+        not distribution
+        or observed_high_today is None
+    ):
+        return distribution
+
+    floor_temp = nearest_int(
+        observed_high_today
+    )
+
+    result = {
+        temp: probability
+        for temp, probability in distribution.items()
+        if temp >= floor_temp
+    }
+
+    # If the distribution does not contain any temperatures at or above
+    # the observed high, keep the highest available temperature rather than
+    # returning an empty distribution.
+    if not result:
+        highest_temp = max(
+            distribution.keys()
+        )
+
+        result = {
+            highest_temp: 1.0
+        }
+
+    return normalize_distribution(
+        result
+    )
+
+
 # ---------------------------------------------------------------------------
 # Weather model
 # ---------------------------------------------------------------------------
@@ -458,6 +656,7 @@ def build_weather_prediction(
     xnd,
     nws_high,
     current_obs,
+    observed_high_today,
     historical_model,
     sigma,
     nearby_signal=None,
@@ -555,11 +754,21 @@ def build_weather_prediction(
         )
     )
 
+    # Existing current-temperature constraint.
     if current_obs is not None:
         final_distribution = (
             apply_current_temp_constraint(
                 final_distribution,
                 current_obs.get("temp"),
+            )
+        )
+
+    # New stronger constraint based on the actual observed high today.
+    if observed_high_today is not None:
+        final_distribution = (
+            apply_observed_high_constraint(
+                final_distribution,
+                observed_high_today,
             )
         )
 
@@ -570,6 +779,9 @@ def build_weather_prediction(
         "hist_weight": hist_weight,
         "nws_weight": nws_weight,
         "nbm_weight": nbm_weight,
+        "observed_high_today": (
+            observed_high_today
+        ),
         "nearby_delta": (
             nearby_signal["delta_vs_kmia"]
             if nearby_signal is not None
@@ -789,6 +1001,7 @@ def format_report(
     nbm,
     nws_high,
     current_obs,
+    observed_high_today,
     trend,
     nearby_signal,
     historical_model,
@@ -1007,6 +1220,12 @@ def format_report(
                 f"  KMIA wind: "
                 f"{current_obs['wind_speed']} kt"
             )
+
+    if observed_high_today is not None:
+        lines.append(
+            f"  KMIA observed high today: "
+            f"{observed_high_today:.0f}°F"
+        )
 
     if trend is not None:
         lines.append(
@@ -1266,6 +1485,7 @@ def build_tracking_weather_inputs(
     nbm,
     nws_high,
     current_obs,
+    observed_high_today,
     trend,
     nearby_signal,
     historical_model,
@@ -1346,6 +1566,14 @@ def build_tracking_weather_inputs(
             )
             if current_obs is not None
             and current_obs.get("temp") is not None
+            else None
+        ),
+        "kmia_observed_high_today": (
+            round(
+                float(observed_high_today),
+                2,
+            )
+            if observed_high_today is not None
             else None
         ),
         "kmia_dewpoint": (
@@ -1549,6 +1777,31 @@ def main():
         sys.exit(1)
 
     # ---------------------------------------------------------
+    # Observed KMIA high so far today
+    #
+    # This is separate from the current temperature. The current
+    # temperature can fall after the day's high has already occurred.
+    # ---------------------------------------------------------
+    observed_high_today = (
+        fetch_kmia_observed_high_today(
+            target_date=target_date,
+            now_et=now_et,
+        )
+    )
+
+    if observed_high_today is not None:
+        print(
+            f"KMIA observed high so far today: "
+            f"{observed_high_today:.0f}°F"
+        )
+    else:
+        print(
+            "KMIA observed high so far today: "
+            "unavailable; using current-temperature "
+            "constraint only."
+        )
+
+    # ---------------------------------------------------------
     # Same-morning historical model
     # ---------------------------------------------------------
     historical_model = (
@@ -1590,6 +1843,7 @@ def main():
         xnd=xnd,
         nws_high=nws_high,
         current_obs=current_obs,
+        observed_high_today=observed_high_today,
         historical_model=historical_model,
         sigma=sigma,
         nearby_signal=nearby_signal,
@@ -1686,6 +1940,7 @@ def main():
             nbm=nbm,
             nws_high=nws_high,
             current_obs=current_obs,
+            observed_high_today=observed_high_today,
             trend=trend,
             nearby_signal=nearby_signal,
             historical_model=historical_model,
@@ -1765,6 +2020,7 @@ def main():
         nbm=nbm,
         nws_high=nws_high,
         current_obs=current_obs,
+        observed_high_today=observed_high_today,
         trend=trend,
         nearby_signal=nearby_signal,
         historical_model=historical_model,
