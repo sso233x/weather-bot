@@ -1955,6 +1955,10 @@ def main():
     #
     # The tracker itself prevents evening/manual runs from
     # being recorded and prevents duplicate predictions.
+    #
+    # The market snapshot is informational only. It contains
+    # the market data already retrieved AFTER the weather model
+    # was completed. It is never passed into the weather model.
     # ---------------------------------------------------------
     if best_app_bucket is not None:
 
@@ -1984,6 +1988,7 @@ def main():
                 weather_inputs=(
                     tracking_weather_inputs
                 ),
+                market_snapshot=market,
             )
 
             print(
