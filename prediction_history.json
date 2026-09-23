@@ -241,8 +241,44 @@
       "nbm_sigma_source": "stratum"
     },
     "actual_high": null,
+    "settled_bucket": "89-90\u00b0F",
+    "result": "WIN",
+    "recorded_at": "2026-09-22T12:23:41.664031-04:00",
+    "resolved_at": "2026-09-23T12:12:35.336077-04:00"
+  },
+  {
+    "date": "2026-09-23",
+    "predicted_bucket": "84-85\u00b0F",
+    "lo": 84.0,
+    "hi": 85.0,
+    "model_probability": 0.30759,
+    "confidence": "LOW",
+    "market_price": 0.4,
+    "analog_count": 80,
+    "weather_inputs": {
+      "nbm_txn": 87.0,
+      "nbm_bias_corrected_txn": 86.62,
+      "nbm_xnd": 2.0,
+      "nbm_cycle": "07",
+      "nws_remaining_high": 84.0,
+      "kmia_temperature": 80.06,
+      "kmia_observed_high_today": 81.0,
+      "kmia_dewpoint": 73.94,
+      "kmia_wind_speed": 3.0,
+      "kmia_recent_trend": null,
+      "nearby_average": 79.34,
+      "nearby_delta_vs_kmia": -0.72,
+      "historical_analog_average": 84.29,
+      "historical_analog_count": 80,
+      "historical_weight": 0.5,
+      "nws_weight": 0.3,
+      "nbm_weight": 0.2,
+      "nbm_sigma": 2.81,
+      "nbm_sigma_source": "stratum"
+    },
+    "actual_high": null,
     "settled_bucket": null,
     "result": null,
-    "recorded_at": "2026-09-22T12:23:41.664031-04:00"
+    "recorded_at": "2026-09-23T12:12:35.258394-04:00"
   }
 ]
