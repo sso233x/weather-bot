@@ -17,6 +17,10 @@ whether the predicted app bucket actually won.
 Each prediction also stores a snapshot of the major weather inputs used
 to create that prediction. This allows future calibration and
 performance analysis without changing the model itself.
+
+Each prediction also stores a snapshot of the Polymarket website and app
+markets at the exact time the prediction was recorded. This is for future
+model-vs-market analysis only and is never fed back into the weather model.
 """
 
 import json
@@ -109,6 +113,7 @@ def record_prediction(
     market_price=None,
     analog_count=0,
     weather_inputs=None,
+    market_snapshot=None,
     path=HISTORY_FILE,
 ):
     if not is_tracking_time(now_et):
@@ -146,6 +151,11 @@ def record_prediction(
         "weather_inputs": (
             weather_inputs
             if isinstance(weather_inputs, dict)
+            else {}
+        ),
+        "market_snapshot": (
+            market_snapshot
+            if isinstance(market_snapshot, dict)
             else {}
         ),
         "actual_high": None,
