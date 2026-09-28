@@ -925,8 +925,9 @@
       ]
     },
     "actual_high": null,
-    "settled_bucket": null,
-    "result": null,
-    "recorded_at": "2026-09-27T13:58:42.781953-04:00"
+    "settled_bucket": "89-90\u00b0F",
+    "result": "WIN",
+    "recorded_at": "2026-09-27T13:58:42.781953-04:00",
+    "resolved_at": "2026-09-28T16:18:46.304130-04:00"
   }
 ]
