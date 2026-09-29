@@ -929,5 +929,158 @@
     "result": "WIN",
     "recorded_at": "2026-09-27T13:58:42.781953-04:00",
     "resolved_at": "2026-09-28T16:18:46.304130-04:00"
+  },
+  {
+    "date": "2026-09-29",
+    "predicted_bucket": "83-84\u00b0F",
+    "lo": 83.0,
+    "hi": 84.0,
+    "model_probability": 0.235554,
+    "confidence": "LOW",
+    "market_price": 0.01,
+    "analog_count": 80,
+    "weather_inputs": {
+      "nbm_txn": 86.0,
+      "nbm_bias_corrected_txn": 85.62,
+      "nbm_xnd": 2.0,
+      "nbm_cycle": "07",
+      "nws_remaining_high": 84.0,
+      "kmia_temperature": 82.94,
+      "kmia_observed_high_today": 84.0,
+      "kmia_dewpoint": 69.08,
+      "kmia_wind_speed": 6.0,
+      "kmia_recent_trend": null,
+      "nearby_average": 80.06,
+      "nearby_delta_vs_kmia": -2.88,
+      "historical_analog_average": 84.78,
+      "historical_analog_count": 80,
+      "historical_weight": 0.5,
+      "nws_weight": 0.3,
+      "nbm_weight": 0.2,
+      "nbm_sigma": 2.81,
+      "nbm_sigma_source": "stratum"
+    },
+    "market_snapshot": {
+      "website": [
+        {
+          "label": "76-77\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 76.0,
+          "hi": 77.0
+        },
+        {
+          "label": "78-79\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 78.0,
+          "hi": 79.0
+        },
+        {
+          "label": "80-81\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 80.0,
+          "hi": 81.0
+        },
+        {
+          "label": "82-83\u00b0F",
+          "price": 0.86,
+          "model_prob": 0.0,
+          "edge": -0.86,
+          "lo": 82.0,
+          "hi": 83.0
+        },
+        {
+          "label": "84-85\u00b0F",
+          "price": 0.115,
+          "model_prob": 0.5501695529483295,
+          "edge": 0.4351695529483295,
+          "lo": 84.0,
+          "hi": 85.0
+        },
+        {
+          "label": "86-87\u00b0F",
+          "price": 0.012,
+          "model_prob": 0.25703093621421186,
+          "edge": 0.24503093621421185,
+          "lo": 86.0,
+          "hi": 87.0
+        },
+        {
+          "label": "88-89\u00b0F",
+          "price": 0.0025,
+          "model_prob": 0.15109609705990143,
+          "edge": 0.14859609705990143,
+          "lo": 88.0,
+          "hi": 89.0
+        },
+        {
+          "label": "90-91\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.030086196521203562,
+          "edge": 0.02958619652120356,
+          "lo": 90.0,
+          "hi": 91.0
+        },
+        {
+          "label": "92-93\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.01087283154829705,
+          "edge": 0.01037283154829705,
+          "lo": 92.0,
+          "hi": 93.0
+        }
+      ],
+      "app": [
+        {
+          "label": "\u226482\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.0,
+          "edge": -0.01,
+          "lo": -200.0,
+          "hi": 82.0
+        },
+        {
+          "label": "83-84\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.23555424386998,
+          "edge": 0.22555424386998,
+          "lo": 83.0,
+          "hi": 84.0
+        },
+        {
+          "label": "87-88\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.2077814618271333,
+          "edge": 0.1977814618271333,
+          "lo": 87.0,
+          "hi": 88.0
+        },
+        {
+          "label": "89-90\u00b0F",
+          "price": 0.02,
+          "model_prob": 0.06423021412639739,
+          "edge": 0.04423021412639738,
+          "lo": 89.0,
+          "hi": 90.0
+        },
+        {
+          "label": "\u226591\u00b0F",
+          "price": 0.02,
+          "model_prob": 0.01930023682433129,
+          "edge": -0.0006997631756687113,
+          "lo": 91.0,
+          "hi": 300.0
+        }
+      ]
+    },
+    "actual_high": null,
+    "settled_bucket": null,
+    "result": null,
+    "recorded_at": "2026-09-29T14:59:00.486615-04:00"
   }
 ]
