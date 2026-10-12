@@ -3023,8 +3023,9 @@
       ]
     },
     "actual_high": null,
-    "settled_bucket": null,
-    "result": null,
-    "recorded_at": "2026-10-11T12:20:19.686071-04:00"
+    "settled_bucket": "89-90\u00b0F",
+    "result": "LOSS",
+    "recorded_at": "2026-10-11T12:20:19.686071-04:00",
+    "resolved_at": "2026-10-12T17:55:05.702075-04:00"
   }
 ]
