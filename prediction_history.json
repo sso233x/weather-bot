@@ -5931,8 +5931,170 @@
       ]
     },
     "actual_high": null,
+    "settled_bucket": "86-87\u00b0F",
+    "result": "LOSS",
+    "recorded_at": "2026-10-30T12:00:32.574279-04:00",
+    "resolved_at": "2026-10-31T12:01:01.275332-04:00"
+  },
+  {
+    "date": "2026-10-31",
+    "predicted_bucket": "84-85\u00b0F",
+    "lo": 84.0,
+    "hi": 85.0,
+    "model_probability": 0.591297,
+    "confidence": "GOOD",
+    "market_price": 0.2,
+    "analog_count": 80,
+    "weather_inputs": {
+      "nbm_txn": 85.0,
+      "nbm_bias_corrected_txn": 84.62,
+      "nbm_xnd": 2.0,
+      "nbm_cycle": "07",
+      "nws_remaining_high": 83.0,
+      "kmia_temperature": 82.04,
+      "kmia_observed_high_today": 84.0,
+      "kmia_dewpoint": 73.04,
+      "kmia_wind_speed": 18.0,
+      "kmia_recent_trend": null,
+      "nearby_average": 84.98,
+      "nearby_delta_vs_kmia": 2.94,
+      "historical_analog_average": 84.66,
+      "historical_analog_count": 80,
+      "historical_weight": 0.5,
+      "nws_weight": 0.3,
+      "nbm_weight": 0.2,
+      "nbm_sigma": 2.81,
+      "nbm_sigma_source": "stratum"
+    },
+    "market_snapshot": {
+      "website": [
+        {
+          "label": "74-75\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 74.0,
+          "hi": 75.0
+        },
+        {
+          "label": "76-77\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 76.0,
+          "hi": 77.0
+        },
+        {
+          "label": "78-79\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 78.0,
+          "hi": 79.0
+        },
+        {
+          "label": "80-81\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 80.0,
+          "hi": 81.0
+        },
+        {
+          "label": "82-83\u00b0F",
+          "price": 0.19,
+          "model_prob": 0.0,
+          "edge": -0.19,
+          "lo": 82.0,
+          "hi": 83.0
+        },
+        {
+          "label": "84-85\u00b0F",
+          "price": 0.655,
+          "model_prob": 0.5912966939320228,
+          "edge": -0.06370330606797725,
+          "lo": 84.0,
+          "hi": 85.0
+        },
+        {
+          "label": "86-87\u00b0F",
+          "price": 0.205,
+          "model_prob": 0.27338971888504887,
+          "edge": 0.06838971888504888,
+          "lo": 86.0,
+          "hi": 87.0
+        },
+        {
+          "label": "88-89\u00b0F",
+          "price": 0.006,
+          "model_prob": 0.07522717627798849,
+          "edge": 0.06922717627798848,
+          "lo": 88.0,
+          "hi": 89.0
+        },
+        {
+          "label": "90-91\u00b0F",
+          "price": 0.0015,
+          "model_prob": 0.049111177666242706,
+          "edge": 0.047611177666242704,
+          "lo": 90.0,
+          "hi": 91.0
+        }
+      ],
+      "app": [
+        {
+          "label": "\u226479\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.0,
+          "edge": -0.01,
+          "lo": -200.0,
+          "hi": 79.0
+        },
+        {
+          "label": "80-81\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.0,
+          "edge": -0.01,
+          "lo": 80.0,
+          "hi": 81.0
+        },
+        {
+          "label": "82-83\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.0,
+          "edge": -0.01,
+          "lo": 82.0,
+          "hi": 83.0
+        },
+        {
+          "label": "84-85\u00b0F",
+          "price": 0.2,
+          "model_prob": 0.5912966939320228,
+          "edge": 0.39129669393202277,
+          "lo": 84.0,
+          "hi": 85.0
+        },
+        {
+          "label": "86-87\u00b0F",
+          "price": 0.35,
+          "model_prob": 0.27338971888504887,
+          "edge": -0.0766102811149511,
+          "lo": 86.0,
+          "hi": 87.0
+        },
+        {
+          "label": "\u226588\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.13531358718292835,
+          "edge": 0.12531358718292834,
+          "lo": 88.0,
+          "hi": 300.0
+        }
+      ]
+    },
+    "actual_high": null,
     "settled_bucket": null,
     "result": null,
-    "recorded_at": "2026-10-30T12:00:32.574279-04:00"
+    "recorded_at": "2026-10-31T12:01:00.972661-04:00"
   }
 ]
