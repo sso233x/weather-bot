@@ -6093,8 +6093,162 @@
       ]
     },
     "actual_high": null,
+    "settled_bucket": "84-85\u00b0F",
+    "result": "WIN",
+    "recorded_at": "2026-10-31T12:01:00.972661-04:00",
+    "resolved_at": "2026-11-01T12:00:25.550147-05:00"
+  },
+  {
+    "date": "2026-11-01",
+    "predicted_bucket": "84-85\u00b0F",
+    "lo": 84.0,
+    "hi": 85.0,
+    "model_probability": 0.280314,
+    "confidence": "LOW",
+    "market_price": 0.01,
+    "analog_count": 80,
+    "weather_inputs": {
+      "nbm_txn": 83.0,
+      "nbm_bias_corrected_txn": 82.62,
+      "nbm_xnd": 2.0,
+      "nbm_cycle": "07",
+      "nws_remaining_high": 81.0,
+      "kmia_temperature": 73.94,
+      "kmia_observed_high_today": 82.0,
+      "kmia_dewpoint": 73.04,
+      "kmia_wind_speed": 7.0,
+      "kmia_recent_trend": null,
+      "nearby_average": 76.04,
+      "nearby_delta_vs_kmia": 2.1,
+      "historical_analog_average": 79.03,
+      "historical_analog_count": 80,
+      "historical_weight": 0.5,
+      "nws_weight": 0.3,
+      "nbm_weight": 0.2,
+      "nbm_sigma": 2.81,
+      "nbm_sigma_source": "stratum"
+    },
+    "market_snapshot": {
+      "website": [
+        {
+          "label": "74-75\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 74.0,
+          "hi": 75.0
+        },
+        {
+          "label": "76-77\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 76.0,
+          "hi": 77.0
+        },
+        {
+          "label": "78-79\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0,
+          "edge": -0.0005,
+          "lo": 78.0,
+          "hi": 79.0
+        },
+        {
+          "label": "80-81\u00b0F",
+          "price": 0.965,
+          "model_prob": 0.0,
+          "edge": -0.965,
+          "lo": 80.0,
+          "hi": 81.0
+        },
+        {
+          "label": "82-83\u00b0F",
+          "price": 0.0325,
+          "model_prob": 0.5831350310476685,
+          "edge": 0.5506350310476685,
+          "lo": 82.0,
+          "hi": 83.0
+        },
+        {
+          "label": "84-85\u00b0F",
+          "price": 0.0015,
+          "model_prob": 0.28031361740436656,
+          "edge": 0.27881361740436655,
+          "lo": 84.0,
+          "hi": 85.0
+        },
+        {
+          "label": "86-87\u00b0F",
+          "price": 0.0015,
+          "model_prob": 0.08186617809330404,
+          "edge": 0.08036617809330404,
+          "lo": 86.0,
+          "hi": 87.0
+        },
+        {
+          "label": "88-89\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.050840050338353523,
+          "edge": 0.05034005033835352,
+          "lo": 88.0,
+          "hi": 89.0
+        },
+        {
+          "label": "90-91\u00b0F",
+          "price": 0.0005,
+          "model_prob": 0.0034247267878156806,
+          "edge": 0.0029247267878156806,
+          "lo": 90.0,
+          "hi": 91.0
+        }
+      ],
+      "app": [
+        {
+          "label": "\u226477\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.0,
+          "edge": -0.01,
+          "lo": -200.0,
+          "hi": 77.0
+        },
+        {
+          "label": "78-79\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.0,
+          "edge": -0.01,
+          "lo": 78.0,
+          "hi": 79.0
+        },
+        {
+          "label": "80-81\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.0,
+          "edge": -0.01,
+          "lo": 80.0,
+          "hi": 81.0
+        },
+        {
+          "label": "84-85\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.28031361740436656,
+          "edge": 0.27031361740436655,
+          "lo": 84.0,
+          "hi": 85.0
+        },
+        {
+          "label": "\u226586\u00b0F",
+          "price": 0.01,
+          "model_prob": 0.1365513515479651,
+          "edge": 0.1265513515479651,
+          "lo": 86.0,
+          "hi": 300.0
+        }
+      ]
+    },
+    "actual_high": null,
     "settled_bucket": null,
     "result": null,
-    "recorded_at": "2026-10-31T12:01:00.972661-04:00"
+    "recorded_at": "2026-11-01T12:00:25.450978-05:00"
   }
 ]
